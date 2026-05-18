@@ -11,7 +11,9 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { BulkImportModal } from '../components/BulkImportModal';
 import { useSchools } from '../hooks/useSchools';
+import { supabase } from '../lib/supabase';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -20,6 +22,7 @@ export function SchoolsListScreen() {
   const nav = useNavigation<Nav>();
   const { schools, loading, refresh } = useSchools();
   const [search, setSearch] = useState('');
+  const [importOpen, setImportOpen] = useState(false);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -45,6 +48,24 @@ export function SchoolsListScreen() {
           <Text style={styles.addBtnText}>+ Nova</Text>
         </Pressable>
       </View>
+
+      <Pressable style={styles.importLink} onPress={() => setImportOpen(true)}>
+        <Text style={styles.importLinkText}>Tem uma lista pronta? Importar várias</Text>
+      </Pressable>
+
+      <BulkImportModal
+        visible={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Importar escolas"
+        hint="Cole os nomes das escolas, um por linha. Você poderá editar cidade e outros dados depois, tocando em cada escola."
+        placeholder={'Escola Municipal A\nEscola Estadual B\nColégio C'}
+        onImport={async (names) => {
+          const rows = names.map((name) => ({ name }));
+          const { error, data } = await supabase.from('schools').insert(rows).select('id');
+          if (error) return { inserted: 0, error: error.message };
+          return { inserted: data?.length ?? rows.length };
+        }}
+      />
 
       {loading && schools.length === 0 ? (
         <ActivityIndicator style={{ marginTop: 24 }} />
@@ -118,4 +139,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   empty: { textAlign: 'center', marginTop: 32, color: '#6b7280' },
+  importLink: { paddingHorizontal: 16, paddingBottom: 8 },
+  importLinkText: { color: '#2563eb', fontWeight: '500', fontSize: 13 },
 });

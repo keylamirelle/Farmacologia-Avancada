@@ -11,8 +11,10 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { BulkImportModal } from '../components/BulkImportModal';
 import { MaterialSummaryCard } from '../components/MaterialSummaryCard';
 import { useMaterialStatus } from '../hooks/useMaterials';
+import { supabase } from '../lib/supabase';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -21,6 +23,7 @@ export function MaterialsListScreen() {
   const nav = useNavigation<Nav>();
   const { items, loading, refresh } = useMaterialStatus();
   const [search, setSearch] = useState('');
+  const [importOpen, setImportOpen] = useState(false);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -42,6 +45,29 @@ export function MaterialsListScreen() {
           <Text style={styles.addBtnText}>+ Novo</Text>
         </Pressable>
       </View>
+
+      <Pressable style={styles.importLink} onPress={() => setImportOpen(true)}>
+        <Text style={styles.importLinkText}>Tem uma lista pronta? Importar vários</Text>
+      </Pressable>
+
+      <BulkImportModal
+        visible={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Importar materiais"
+        hint="Cole os nomes dos materiais, um por linha. Os materiais serão criados com unidade 'un', quantidade 0 e marcados como retornáveis. Você ajusta cada um depois tocando no material."
+        placeholder={'Microscópio óptico\nKit de geometria\nLivro de ciências'}
+        onImport={async (names) => {
+          const rows = names.map((name) => ({
+            name,
+            unit: 'un',
+            total_quantity: 0,
+            returnable: true,
+          }));
+          const { error, data } = await supabase.from('materials').insert(rows).select('id');
+          if (error) return { inserted: 0, error: error.message };
+          return { inserted: data?.length ?? rows.length };
+        }}
+      />
 
       {loading && items.length === 0 ? (
         <ActivityIndicator style={{ marginTop: 24 }} />
@@ -87,4 +113,6 @@ const styles = StyleSheet.create({
   },
   addBtnText: { color: '#fff', fontWeight: '600' },
   empty: { textAlign: 'center', marginTop: 32, color: '#6b7280' },
+  importLink: { paddingHorizontal: 16, paddingBottom: 8 },
+  importLinkText: { color: '#2563eb', fontWeight: '500', fontSize: 13 },
 });
