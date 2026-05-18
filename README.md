@@ -1,44 +1,46 @@
-# Inventario - Protótipo
+# Controle de Materiais - Protótipo
 
-App mobile (iOS + Android) para gerenciamento simples de estoque, com cadastro de
-produtos, registro de entradas e retiradas e histórico diário. Construído com
-**Expo + React Native + TypeScript** no frontend e **Supabase** (Postgres +
-Auth) no backend.
+App mobile (iOS + Android) para controle de **empréstimo/uso de materiais
+que saem para escolas**. Você cadastra responsáveis, escolas e materiais,
+e registra cada retirada (quem está levando o quê, para qual escola, em
+que data). O dashboard mostra em tempo real o que está em uso, por quem
+e onde.
 
-Este é um protótipo para validar o conceito com uma equipe pequena (2–10
-pessoas). A equipe testa direto pelo **Expo Go** escaneando um QR Code, sem
-precisar publicar nas lojas.
+Stack: **Expo + React Native + TypeScript** no frontend e **Supabase**
+(Postgres + Realtime) no backend. **Modo kiosk: sem login** — qualquer
+um que abrir o app pode registrar retiradas em nome de qualquer
+responsável cadastrado.
 
 ---
 
 ## 1. O que você precisa antes de começar
 
 - **Node.js 20+** ([download](https://nodejs.org)) e `npm` no computador onde
-  o servidor de desenvolvimento vai rodar.
-- Uma conta gratuita no **[Supabase](https://supabase.com)**.
-- **Expo Go** instalado nos celulares da equipe que vai testar:
-  - [Android (Play Store)](https://play.google.com/store/apps/details?id=host.exp.exponent)
-  - [iOS (App Store)](https://apps.apple.com/app/expo-go/id982107779)
+  o servidor de desenvolvimento vai rodar
+- Uma conta gratuita no **[Supabase](https://supabase.com)**
+- **Expo Go** instalado nos celulares da equipe:
+  - [Android](https://play.google.com/store/apps/details?id=host.exp.exponent)
+  - [iOS](https://apps.apple.com/app/expo-go/id982107779)
 
 ---
 
-## 2. Configurar o Supabase
+## 2. Configurar o Supabase (uma vez só)
 
-1. Em https://supabase.com, crie um novo projeto (escolha região mais próxima e
-   defina uma senha do banco — não vamos precisar dela depois).
-2. Aguarde o projeto provisionar (~1-2 minutos).
-3. Vá em **SQL Editor → New query**, abra o arquivo
-   `supabase/schema.sql` deste repositório, cole o conteúdo inteiro e clique em
-   **Run**. Isso cria as tabelas, triggers e políticas de segurança.
-4. (Opcional, mas recomendado para protótipo) Em **Authentication → Providers →
-   Email**, desligue *Confirm email* para que os usuários consigam entrar
-   imediatamente após o cadastro.
-5. Em **Project Settings → API**, copie:
+1. Em https://supabase.com → **Start your project** → login com GitHub ou email
+2. **New project** → nome (ex: `materiais`), gere uma senha do banco, região
+   *South America (São Paulo)*, plano **Free**
+3. Aguarde ~1-2 min o projeto subir
+4. Menu lateral → **SQL Editor** → **+ New query**
+5. Abra `supabase/schema.sql` deste repositório, copie tudo, cole no editor,
+   clique **Run**. Deve aparecer *"Success. No rows returned"*
+6. Menu lateral → **Project Settings** → **API**. Copie:
    - **Project URL**
    - **anon public** key
-6. (Opcional) Crie alguns usuários de teste em **Authentication → Users → Add
-   user** (email + senha), ou deixe que cada pessoa se cadastre pelo próprio
-   app.
+
+> Note que este protótipo está em **modo kiosk** (sem login). O schema
+> desabilita Row Level Security para que o app funcione sem
+> autenticação. Para uso real com dados sensíveis, será necessário
+> reativar e adicionar Auth.
 
 ---
 
@@ -52,7 +54,7 @@ npm install
 cp .env.example .env
 ```
 
-Edite o `.env` e cole as duas chaves do Supabase:
+Edite o `.env` com as duas chaves do Supabase:
 
 ```
 EXPO_PUBLIC_SUPABASE_URL=https://SEU-PROJETO.supabase.co
@@ -67,30 +69,66 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJh...
 npx expo start --tunnel
 ```
 
-O `--tunnel` faz com que celulares em redes diferentes da sua também consigam
-conectar (não é necessário estar no mesmo Wi-Fi). Vai aparecer um **QR Code**
-no terminal e no navegador.
+Aparece um QR Code no terminal e no navegador. Cada pessoa da equipe:
 
-Cada pessoa da equipe:
+- **Android**: abre o Expo Go → **Scan QR code**
+- **iPhone**: abre a **Câmera** → aponta para o QR → toca no banner
 
-1. Abre o **Expo Go** no celular
-2. Escaneia o QR Code (Android: dentro do próprio app; iOS: pela câmera)
-3. O app carrega → tela de Login
-4. Cadastra-se com email + senha (ou usa um usuário que você criou no Supabase)
-5. Pronto — cadastrar produtos, registrar entradas/retiradas, ver histórico
+A primeira vez demora ~30s para carregar.
 
 ---
 
 ## 5. Fluxo do app
 
-- **Aba Produtos**: lista todos os produtos com busca. Item fica com selo
-  *"estoque baixo"* quando `estoque atual ≤ estoque mínimo`. Botões rápidos
-  para criar produto, registrar entrada ou retirada.
-- **Aba Histórico**: movimentações registradas hoje, com nome de quem fez
-  cada uma. Atualiza em tempo real (Supabase Realtime).
-- **+ Novo produto**: nome, SKU (opcional), unidade, estoque mínimo.
-- **Entrada**: aumenta o estoque do produto escolhido.
-- **Retirada**: diminui o estoque (bloqueia se for maior que o disponível).
+### 5.1) Cadastros (aba **C**)
+
+Antes de fazer a primeira retirada, cadastre:
+
+- **Pessoas (responsáveis)**: quem pode retirar materiais. Nome (obrigatório),
+  função/cargo e telefone (opcionais).
+- **Escolas**: para onde os materiais vão. Nome (obrigatório), cidade
+  (opcional).
+- **Materiais**: o que está disponível. Nome, unidade (`un`, `kg`, `cx`...),
+  **quantidade total** e flag **"retorna após uso"**:
+  - **Retorna** (ligado): emprestável. Ex.: jogos, livros, microscópio. O
+    material fica *"em uso"* até alguém marcar como devolvido, depois volta ao
+    disponível.
+  - **Consumível** (desligado): sai e não volta. Ex.: papel, lapiseira. A
+    retirada diminui o disponível permanentemente.
+
+### 5.2) Registrar uma retirada (aba **R** → **+ Nova retirada**)
+
+1. Escolhe **responsável** (lista cadastrada de pessoas)
+2. Escolhe **escola**
+3. Escolhe **material** (mostra quanto está disponível)
+4. Digita a **quantidade**
+5. (Opcional) Adiciona uma **observação**
+6. Toca em **Registrar retirada**
+
+A data/hora é gravada automaticamente. O material aparece imediatamente como
+*"em uso"* no dashboard.
+
+### 5.3) Marcar como devolvido (aba **R**)
+
+Na lista de **Retiradas Ativas**, cada cartão de material retornável tem o
+botão **"Marcar devolvido"**. Ao tocar, a quantidade volta ao disponível e a
+retirada some das ativas (continua aparecendo no filtro **"Todas"** com data
+de devolução).
+
+### 5.4) Dashboard (aba **D**)
+
+No topo: total de materiais, unidades em uso, retiradas ativas.
+
+Três visões alternáveis:
+
+- **Por material**: cada item mostra total / em uso / disponível.
+- **Por pessoa**: agrupa retiradas ativas pela pessoa que retirou (você vê de
+  uma vez tudo o que cada responsável está com).
+- **Por escola**: agrupa retiradas ativas por escola (você vê o que cada
+  escola tem no momento).
+
+Tudo atualiza em tempo real via Supabase Realtime — se alguém em outro
+celular registra uma retirada, aparece imediatamente nos outros aparelhos.
 
 ---
 
@@ -98,64 +136,84 @@ Cada pessoa da equipe:
 
 ```
 .
-├── App.tsx                       Componente raiz
-├── index.ts                      Entry point (registerRootComponent)
-├── app.json                      Config do Expo
+├── App.tsx                          Componente raiz
+├── index.ts                         Entry point
+├── app.json                         Config do Expo
 ├── package.json
 ├── supabase/
-│   └── schema.sql                Tabelas + triggers + RLS para colar no Supabase
+│   └── schema.sql                   Tabelas + view + grants para colar no Supabase
 └── src/
     ├── lib/
-    │   ├── supabase.ts           Cliente Supabase com persistencia no AsyncStorage
-    │   └── types.ts              Tipos Product, StockMovement, Profile
-    ├── context/
-    │   └── AuthContext.tsx       Provider de sessao + hook useAuth
+    │   ├── supabase.ts              Cliente Supabase
+    │   └── types.ts                 Person, School, Material, Withdrawal
     ├── navigation/
-    │   ├── RootNavigator.tsx     Switch entre Auth e App stack
-    │   └── AppTabs.tsx           Bottom tabs (Produtos | Historico)
+    │   ├── RootNavigator.tsx        Stack raiz
+    │   └── AppTabs.tsx              Tabs: Dashboard | Retiradas | Cadastros
     ├── screens/
-    │   ├── LoginScreen.tsx
-    │   ├── ProductsScreen.tsx
-    │   ├── ProductFormScreen.tsx
-    │   ├── EntryScreen.tsx       (usa MovementForm com type="entry")
-    │   ├── WithdrawalScreen.tsx  (usa MovementForm com type="withdrawal")
-    │   ├── MovementForm.tsx      Form compartilhado por entrada/retirada
-    │   └── HistoryScreen.tsx
+    │   ├── DashboardScreen.tsx      3 visoes (material/pessoa/escola)
+    │   ├── WithdrawalsScreen.tsx    Lista ativa/hoje/todas com devolucao
+    │   ├── NewWithdrawalScreen.tsx  Form de nova retirada
+    │   ├── CadastrosScreen.tsx      Menu (pessoas | escolas | materiais)
+    │   ├── PeopleListScreen.tsx
+    │   ├── PersonFormScreen.tsx
+    │   ├── SchoolsListScreen.tsx
+    │   ├── SchoolFormScreen.tsx
+    │   ├── MaterialsListScreen.tsx
+    │   └── MaterialFormScreen.tsx
     ├── components/
-    │   ├── ProductCard.tsx
-    │   ├── MovementRow.tsx
+    │   ├── MaterialSummaryCard.tsx
+    │   ├── WithdrawalCard.tsx
     │   └── QuantityInput.tsx
     └── hooks/
-        ├── useProducts.ts        Lista + realtime
-        └── useMovements.ts       Movimentacoes do dia + realtime
+        ├── usePeople.ts             Lista + realtime
+        ├── useSchools.ts
+        ├── useMaterials.ts          Inclui useMaterialStatus (view agregada)
+        └── useWithdrawals.ts        Filter: active | today | all
 ```
 
 ---
 
-## 7. Fora do escopo deste protótipo
+## 7. Modelo de dados (resumo)
 
-(Dá para adicionar depois se a equipe validar a ideia)
+| Tabela        | Campos principais                                          |
+| ------------- | ---------------------------------------------------------- |
+| `people`      | `name`, `role`, `phone`, `active`                          |
+| `schools`     | `name`, `city`, `active`                                   |
+| `materials`   | `name`, `unit`, `total_quantity`, `returnable`             |
+| `withdrawals` | `person_id`, `school_id`, `material_id`, `quantity`, `withdrawn_at`, `returned_at` (null = ativa) |
 
-- Leitor de código de barras / QR
-- Relatórios exportáveis (CSV / PDF)
-- Múltiplos depósitos / filiais
-- Permissões por papel (admin vs operador)
-- Sincronização offline
-- Notificações push de estoque baixo
-- Foto do produto
-- Build standalone para Play Store / App Store (EAS Build)
+A view `material_status` calcula automaticamente:
+- `in_use` (em uso agora): soma das retiradas ativas de materiais retornáveis
+- `consumed` (consumido): soma das retiradas de materiais não-retornáveis
+- `available` = `total_quantity - in_use - consumed`
+
+---
+
+## 8. Fora do escopo (protótipo)
+
+(Dá para adicionar depois)
+
+- Login / permissões por usuário
+- Leitor de código de barras / QR para selecionar material
+- Relatórios exportáveis (CSV, PDF)
+- Devolução parcial (devolver só parte de uma retirada)
+- Múltiplas unidades de medida por material
+- Foto / anexo no cadastro
+- Notificações para responsáveis com material há muito tempo
+- Build standalone para Play Store / App Store
 - Testes automatizados
 
 ---
 
-## 8. Problemas comuns
+## 9. Problemas comuns
 
-- **"EXPO_PUBLIC_SUPABASE_URL ausente"** → você esqueceu de criar o `.env` ou
-  está rodando antes de salvar. Pare o servidor (Ctrl+C), salve o `.env` e
-  rode `npx expo start --tunnel` de novo.
-- **Login falha com "Email not confirmed"** → desative *Confirm email* nas
-  configurações de Auth do Supabase (item 2.4 acima).
-- **Retirada bloqueada** → o app não deixa retirar mais do que o estoque atual.
-  Faça uma entrada primeiro.
-- **QR Code não conecta** → use `--tunnel` em vez do modo LAN; se ainda
-  falhar, verifique se o computador tem acesso à internet.
+- **"EXPO_PUBLIC_SUPABASE_URL ausente"** → falta criar/preencher o `.env`.
+- **App abre mas as listas ficam vazias** → o SQL do schema não foi rodado, ou
+  os grants para `anon` falharam. Reabra o `supabase/schema.sql` no SQL Editor
+  e rode novamente.
+- **"new row violates row-level security"** ao salvar → o `disable row level
+  security` do schema não foi executado. Rode o schema todo de novo.
+- **Não consigo selecionar um material em "Nova retirada"** → o material está
+  com 0 disponível (todo em uso ou consumido). Aumente o `total_quantity` em
+  Cadastros > Materiais.
+- **QR Code não conecta** → use sempre `--tunnel`.

@@ -1,33 +1,53 @@
-export type Profile = {
-  id: string;
-  display_name: string | null;
-  created_at: string;
-};
-
-export type Product = {
+export type Person = {
   id: string;
   name: string;
-  sku: string | null;
-  unit: string;
-  current_stock: number;
-  min_stock: number;
-  created_by: string | null;
+  role: string | null;
+  phone: string | null;
+  active: boolean;
   created_at: string;
 };
 
-export type MovementType = 'entry' | 'withdrawal';
-
-export type StockMovement = {
+export type School = {
   id: string;
-  product_id: string;
-  type: MovementType;
-  quantity: number;
-  note: string | null;
-  performed_by: string | null;
-  performed_at: string;
+  name: string;
+  city: string | null;
+  active: boolean;
+  created_at: string;
 };
 
-export type MovementWithJoins = StockMovement & {
-  products: Pick<Product, 'name' | 'unit'> | null;
-  profiles: Pick<Profile, 'display_name'> | null;
+export type Material = {
+  id: string;
+  name: string;
+  unit: string;
+  total_quantity: number;
+  returnable: boolean;
+  created_at: string;
+};
+
+export type MaterialStatus = {
+  id: string;
+  name: string;
+  unit: string;
+  total_quantity: number;
+  returnable: boolean;
+  in_use: number;
+  consumed: number;
+  available: number;
+};
+
+export type Withdrawal = {
+  id: string;
+  person_id: string;
+  school_id: string;
+  material_id: string;
+  quantity: number;
+  note: string | null;
+  withdrawn_at: string;
+  returned_at: string | null;
+};
+
+export type WithdrawalWithJoins = Withdrawal & {
+  people: Pick<Person, 'id' | 'name'> | null;
+  schools: Pick<School, 'id' | 'name'> | null;
+  materials: Pick<Material, 'id' | 'name' | 'unit' | 'returnable'> | null;
 };
