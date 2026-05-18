@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "Inventario",
+    "slug": "inventario-prototipo",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.example.inventarioprototipo"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.example.inventarioprototipo"
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
