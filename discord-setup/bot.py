@@ -144,13 +144,13 @@ class SetupBot(discord.Client):
         return category
 
     async def ensure_text_intro(self, channel: discord.TextChannel, resumo: str):
+        # Cria a mensagem de resumo SÓ na primeira vez (com o texto do
+        # config.yaml como rascunho inicial). Depois disso o sync nunca mais
+        # sobrescreve -- a edição passa a ser feita com o comando /resumo
+        # direto no Discord, por quem tiver permissão de Moderação+.
         marker = "discord-setup:intro"
         async for msg in channel.history(limit=20, oldest_first=True):
             if msg.author.id == self.user.id and msg.embeds and msg.embeds[0].footer.text == marker:
-                if msg.embeds[0].description != resumo:
-                    embed = discord.Embed(description=resumo, color=discord.Color.blurple())
-                    embed.set_footer(text=marker)
-                    await msg.edit(embed=embed)
                 return
         embed = discord.Embed(description=resumo, color=discord.Color.blurple())
         embed.set_footer(text=marker)
@@ -420,6 +420,53 @@ async def sync_command(interaction: discord.Interaction):
     await client.sync_structure(interaction.guild)
     await client.ensure_rules_message(interaction.guild)
     await interaction.followup.send("Configuração sincronizada com sucesso. ✅", ephemeral=True)
+
+
+@tree.command(name="resumo", description="Cria/atualiza o resumo fixado no topo deste canal (texto e/ou imagem).")
+@app_commands.describe(
+    texto="Novo texto do resumo (deixe em branco pra só trocar a imagem, mantendo o texto atual)",
+    imagem="Imagem opcional pra ilustrar o resumo",
+)
+@app_commands.checks.has_permissions(manage_messages=True)
+async def resumo_command(interaction: discord.Interaction, texto: str = None, imagem: discord.Attachment = None):
+    channel = interaction.channel
+    if not isinstance(channel, discord.TextChannel):
+        await interaction.response.send_message(
+            "Esse comando só funciona em canais de texto (não dá em fórum nem voz).", ephemeral=True
+        )
+        return
+
+    marker = "discord-setup:intro"
+    existing_msg = None
+    async for msg in channel.history(limit=20, oldest_first=True):
+        if msg.author.id == client.user.id and msg.embeds and msg.embeds[0].footer.text == marker:
+            existing_msg = msg
+            break
+
+    descricao = texto or (existing_msg.embeds[0].description if existing_msg else None)
+    if not descricao:
+        await interaction.response.send_message(
+            "Preciso de um texto pelo menos na primeira vez -- use `/resumo texto: ...`.", ephemeral=True
+        )
+        return
+
+    embed = discord.Embed(description=descricao, color=discord.Color.blurple())
+    embed.set_footer(text=marker)
+    if imagem:
+        embed.set_image(url=imagem.url)
+    elif existing_msg and existing_msg.embeds[0].image:
+        embed.set_image(url=existing_msg.embeds[0].image.url)
+
+    if existing_msg:
+        await existing_msg.edit(embed=embed)
+    else:
+        existing_msg = await channel.send(embed=embed)
+        try:
+            await existing_msg.pin(reason="discord-setup: resumo do canal")
+        except discord.Forbidden:
+            pass
+
+    await interaction.response.send_message("Resumo atualizado. ✅", ephemeral=True)
 
 
 if __name__ == "__main__":

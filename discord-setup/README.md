@@ -122,6 +122,25 @@ O sync nunca deleta canais/cargos que saíram do arquivo — ele só cria e
 atualiza o que está descrito. Se remover algo do `config.yaml`, apague
 manualmente no Discord.
 
+### Editando o resumo fixado de um canal (sem mexer no config)
+
+O Discord não deixa ninguém editar mensagem de outra pessoa/bot pela
+interface, nem quem é Administrador — então o texto fixado no topo de cada
+canal (o `resumo` do `config.yaml`) só é aplicado **uma vez**, na criação do
+canal. Depois disso, editar é feito com o comando `/resumo`, direto no
+canal que você quer mudar:
+
+```
+/resumo texto: <novo texto> imagem: <opcional, anexe uma imagem>
+```
+
+- Disponível pra quem tem permissão de **Moderação+** (ou Liderança).
+- Rodar sem `texto` só troca a imagem, mantendo o texto atual.
+- Rodar sem `imagem` mantém a imagem atual (se tiver).
+
+Depois que o `/resumo` for usado num canal, o `config.yaml` deixa de ter
+efeito sobre aquela mensagem — ele só serve como rascunho inicial.
+
 ## Como funciona o fluxo de entrada
 
 1. Pessoa entra no servidor → só enxerga a categoria **ENTRADA**
