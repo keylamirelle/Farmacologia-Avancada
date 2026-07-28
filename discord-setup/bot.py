@@ -35,6 +35,13 @@ VISIBILITY_ROLE = {
     "participantes": "Participantes",
     "membros": "Membros",
     "moderacao": "Moderação",
+    "lideranca": "Liderança",
+}
+
+CHANNEL_TYPE_CLASS = {
+    "texto": discord.TextChannel,
+    "audio": discord.VoiceChannel,
+    "forum": discord.ForumChannel,
 }
 
 
@@ -136,14 +143,45 @@ class SetupBot(discord.Client):
                 raise
         return category
 
+    async def ensure_text_intro(self, channel: discord.TextChannel, resumo: str):
+        marker = "discord-setup:intro"
+        async for msg in channel.history(limit=20, oldest_first=True):
+            if msg.author.id == self.user.id and msg.embeds and msg.embeds[0].footer.text == marker:
+                if msg.embeds[0].description != resumo:
+                    embed = discord.Embed(description=resumo, color=discord.Color.blurple())
+                    embed.set_footer(text=marker)
+                    await msg.edit(embed=embed)
+                return
+        embed = discord.Embed(description=resumo, color=discord.Color.blurple())
+        embed.set_footer(text=marker)
+        try:
+            sent = await channel.send(embed=embed)
+            await sent.pin(reason="discord-setup: resumo do canal")
+        except discord.Forbidden:
+            log.warning("Sem permissão pra postar/fixar o resumo em #%s.", channel.name)
+
     async def get_or_create_channel(self, guild: discord.Guild, category: discord.CategoryChannel,
                                      chan_cfg: dict, position: int, overwrites: dict):
         name = chan_cfg["name"]
-        is_voice = chan_cfg["type"] == "audio"
-        existing = discord.utils.get(category.channels, name=name.lower().replace(" ", "-") if not is_voice else name)
-        existing = existing or discord.utils.get(guild.channels, name=name)
+        chan_type = chan_cfg["type"]
+        resumo = chan_cfg.get("resumo")
+        is_voice = chan_type == "audio"
+        slug = name if is_voice else name.lower().replace(" ", "-")
+        existing = discord.utils.get(category.channels, name=slug)
+        existing = existing or discord.utils.get(guild.channels, name=slug)
+
+        if existing is not None and not isinstance(existing, CHANNEL_TYPE_CLASS[chan_type]):
+            log.warning(
+                "Canal '%s' já existe como %s, mas o config.yaml pede tipo '%s'. O Discord "
+                "não permite converter o tipo por API -- apague o canal antigo manualmente "
+                "no Discord e rode /sync de novo pra ele nascer com o tipo certo. Pulando por "
+                "enquanto.",
+                name, type(existing).__name__, chan_type,
+            )
+            return None
+
         try:
-            if is_voice:
+            if chan_type == "audio":
                 if existing is None:
                     existing = await guild.create_voice_channel(
                         name, category=category, overwrites=overwrites, position=position
@@ -151,6 +189,16 @@ class SetupBot(discord.Client):
                     log.info("Canal de voz criado: %s", name)
                 else:
                     await existing.edit(category=category, overwrites=overwrites, position=position)
+            elif chan_type == "forum":
+                if existing is None:
+                    existing = await guild.create_forum(
+                        name, category=category, overwrites=overwrites, position=position,
+                        topic=resumo,
+                    )
+                    log.info("Canal forum criado: %s", name)
+                else:
+                    await existing.edit(category=category, overwrites=overwrites, position=position,
+                                         topic=resumo)
             else:
                 if existing is None:
                     existing = await guild.create_text_channel(
@@ -161,6 +209,10 @@ class SetupBot(discord.Client):
                     await existing.edit(category=category, overwrites=overwrites, position=position)
         except discord.Forbidden:
             log.warning("Sem permissão pra gerenciar o canal '%s' -- pulando.", name)
+            return existing
+
+        if resumo and chan_type == "texto":
+            await self.ensure_text_intro(existing, resumo)
         return existing
 
     async def sync_structure(self, guild: discord.Guild):

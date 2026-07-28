@@ -278,15 +278,23 @@ rules:
 #   participantes -> Participantes+ (padrão da maioria dos canais)
 #   membros       -> Membros+ (Moderação/Liderança também veem, por serem cumulativos)
 #   moderacao     -> Moderação+ (Liderança também vê)
+#   lideranca     -> só Liderança
+#
+# "type": texto, audio ou forum. IMPORTANTE sobre forum: o Discord não deixa
+# converter um canal de texto já existente em forum via API -- se já existir
+# um canal de texto com o mesmo nome, o bot avisa no log e pula (sem apagar
+# nada sozinho). Apague o canal antigo manualmente no Discord e rode /sync
+# de novo pra ele nascer como forum.
+#
+# "resumo" (só canais de texto): mensagem fixa que o bot posta/mantém
+# atualizada no topo do canal explicando pra que ele serve. Em forum, o
+# mesmo texto vira o "tópico"/guidelines do próprio fórum.
 #
 # ATENÇÃO (2 canais marcados "integracao_latam: true"): o Discord não deixa
 # um bot "seguir" outro canal via API — isso é feito manualmente por um
 # humano com acesso aos dois servidores, clicando em "Seguir Canal" no
 # canal de origem do servidor LATAM. O bot só cria o canal vazio aqui;
 # a integração em si é um passo manual (ver README).
-#
-# O canal "whats" é só um link/aviso do grupo de WhatsApp da comunidade,
-# conforme confirmado.
 categories:
   - name: "🚪 ENTRADA"
     order: 1
@@ -294,6 +302,10 @@ categories:
     channels:
       - name: "boas-vindas"
         type: texto
+        resumo: >
+          Ponto de partida de quem acabou de entrar. Aguarde a mensagem do
+          bot no privado (DM) pedindo seu nick e sua classe principal, e
+          depois vá em #regras pra liberar seu acesso aos demais canais.
       - name: "regras"
         type: texto
         somente_leitura: true   # @everyone lê, só o bot posta
@@ -304,6 +316,22 @@ categories:
     channels:
       - name: "beneficios-membros"
         type: texto
+        resumo: "Lista dos benefícios exclusivos de quem é Membro+ na comunidade."
+      - name: "emprestimo-de-itens"
+        type: texto
+        resumo: >
+          Peça ou ofereça itens emprestados por aqui. Empréstimos só entre
+          pessoas de confiança mútua — a administração não se
+          responsabiliza por perdas, golpes ou conflitos decorrentes de
+          empréstimos (regra 6).
+      - name: "contatos-confiaveis"
+        type: texto
+        resumo: >
+          Vendedores de zeny (kk) com histórico de venda confiável dentro
+          da comunidade. Consulte antes de negociar com desconhecidos.
+      - name: "grupos-de-comercio-nidhogg"
+        type: texto
+        resumo: "Links dos grupos de comércio do Ragnarok Online LATAM — Nidhogg."
 
   - name: "📢 INFORMAÇÕES"
     order: 3
@@ -311,12 +339,16 @@ categories:
     channels:
       - name: "anuncio-de-instancias"
         type: texto
+        resumo: "Avisos de instâncias organizadas pela comunidade — fique de olho pra garantir sua vaga."
       - name: "espolios-de-instancias"
         type: texto
+        resumo: "Registro dos itens obtidos nas instâncias e como foram divididos."
       - name: "status-xp-drop-penalidade"
         type: texto
+        resumo: "Status atual de bônus de XP, drop e eventuais penalidades ativas no servidor."
       - name: "comunicados-da-guilda"
         type: texto
+        resumo: "Avisos oficiais e comunicados gerais da guilda."
 
   - name: "🎮 COMUNIDADE"
     order: 4
@@ -324,26 +356,36 @@ categories:
     channels:
       - name: "musica"
         type: texto
+        resumo: "Compartilhe músicas, playlists e recomendações."
       - name: "builds"
-        type: texto
+        type: forum
+        resumo: >
+          Poste sua build aqui: um tópico por build, pra facilitar
+          comentário e busca depois.
       - name: "ferramentas"
         type: texto
+        resumo: "Calculadoras e ferramentas úteis pro dia a dia no jogo."
       - name: "outfit"
         type: texto
+        resumo: "Mostre seu visual! Poste seu outfit aqui."
       - name: "divulgue-seu-conteudo"
         type: texto
+        resumo: "Divulgue seu canal, stream ou conteúdo relacionado ao jogo."
       - name: "whats"
         type: texto
+        resumo: "Link e avisos do grupo de WhatsApp da comunidade."
 
   - name: "💰 COMÉRCIO"
     order: 5
     visibility: participantes
     channels:
-      - name: "comercio"
+      - name: "compra"
         type: texto
+        resumo: "Poste aqui o que você está procurando comprar."
       - name: "vendas"
         type: texto
         visibility_override: membros   # "para membros+", conforme escopo
+        resumo: "Canal de vendas, exclusivo para Membros+. Poste os itens que você está vendendo."
 
   - name: "🌎 LATAM"
     order: 6
@@ -352,9 +394,11 @@ categories:
       - name: "patch-notes-br"
         type: texto
         integracao_latam: true
+        resumo: "Patch notes oficiais do Ragnarok Online LATAM."
       - name: "anuncios-oficiais"
         type: texto
         integracao_latam: true
+        resumo: "Anúncios oficiais do Ragnarok Online LATAM."
 
   - name: "🛡️ MODERAÇÃO"
     order: 7
@@ -362,10 +406,21 @@ categories:
     channels:
       - name: "comunicacao-moderacao"
         type: texto
+        resumo: "Canal interno da Moderação."
+
+  - name: "👑 COMUNICAÇÃO LIDERANÇA"
+    order: 8
+    visibility: lideranca
+    channels:
+      - name: "comunicacao-lideranca"
+        type: texto
+        resumo: "Canal interno da Liderança."
+      - name: "sala-lideranca"
+        type: audio
 
   - name: "🔊 SALAS GERAIS"
-    order: 8
-    visibility: participantes
+    order: 9
+    visibility: moderacao   # só Moderação+Liderança veem/entram, conforme pedido
     channels:
       - name: "warRoom"
         type: audio
@@ -375,7 +430,7 @@ categories:
         type: audio
 
   - name: "🔊 RAGNAROK"
-    order: 9
+    order: 10
     visibility: participantes
     channels:
       - name: "01-Ragnarok"
@@ -390,7 +445,7 @@ categories:
         type: audio
 
   - name: "🔊 LEAGUE OF LEGENDS"
-    order: 10
+    order: 11
     visibility: participantes
     channels:
       - name: "01-League of Legends"
@@ -405,11 +460,10 @@ categories:
         type: audio
 
   - name: "🔊 GERAL"
-    order: 11
+    order: 12
     visibility: participantes
     channels:
-      # ATENÇÃO: sua mensagem foi cortada em "03-Geral" -- confirme se a
-      # lista termina aqui ou se seguia o padrão de 5 salas (04, 05).
+      # ATENÇÃO: ainda não confirmado se termina em 03 ou seguia até 05.
       - name: "01-Geral"
         type: audio
       - name: "02-Geral"
