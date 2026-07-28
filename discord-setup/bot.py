@@ -284,11 +284,30 @@ class SetupBot(discord.Client):
             return None, None
         return nick, classe
 
+    def resolve_guild(self) -> discord.Guild | None:
+        guild = self.get_guild(self.guild_id)
+        if guild is not None:
+            return guild
+        if len(self.guilds) == 1:
+            guild = self.guilds[0]
+            log.warning(
+                "DISCORD_GUILD_ID (%s) não bate com nenhum servidor em que o bot está -- "
+                "usando o único servidor disponível: '%s' (%s).",
+                self.guild_id, guild.name, guild.id,
+            )
+            return guild
+        return None
+
     async def on_ready(self):
         log.info("Conectado como %s", self.user)
-        guild = self.get_guild(self.guild_id)
+        guild = self.resolve_guild()
         if guild is None:
-            log.error("Guild ID %s não encontrado -- o bot está nesse servidor?", self.guild_id)
+            log.error(
+                "Não foi possível identificar o servidor. O bot está em %d servidores: %s. "
+                "Ajuste DISCORD_GUILD_ID no .env para o ID correto (botão direito no ícone "
+                "do servidor > Copiar ID de Servidor).",
+                len(self.guilds), ", ".join(f"{g.name} ({g.id})" for g in self.guilds),
+            )
             return
         roles_by_name = await self.sync_structure(guild)
         self.add_view(RulesView(self, self.config["onboarding"]))
@@ -336,4 +355,16 @@ if __name__ == "__main__":
     token = os.getenv("DISCORD_BOT_TOKEN")
     if not token:
         raise SystemExit("Defina DISCORD_BOT_TOKEN no arquivo .env (veja .env.example).")
-    client.run(token)
+    try:
+        client.run(token, log_handler=None)
+    except discord.LoginFailure:
+        raise SystemExit(
+            "Token inválido. Gere um novo em Discord Developer Portal > sua aplicação > "
+            "Bot > Reset Token, e atualize o .env."
+        )
+    except discord.PrivilegedIntentsRequired:
+        raise SystemExit(
+            "Faltou ativar os Privileged Gateway Intents. Vá em Discord Developer Portal > "
+            "sua aplicação > Bot > Privileged Gateway Intents e ligue 'Server Members Intent' "
+            "e 'Message Content Intent'."
+        )

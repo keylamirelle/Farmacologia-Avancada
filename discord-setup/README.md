@@ -41,7 +41,7 @@ Edite `.env` e preencha `DISCORD_BOT_TOKEN` e `DISCORD_GUILD_ID` (ID do seu
 servidor — ative o "Modo desenvolvedor" em Configurações do Discord →
 Avançado, depois botão direito no servidor → Copiar ID).
 
-## 3. Rodar
+## 3. Rodar localmente (teste)
 
 ```bash
 python bot.py
@@ -51,12 +51,66 @@ Na primeira execução ele cria toda a estrutura (cargos, categorias, canais)
 e posta a mensagem de regras com o botão de confirmação em `#regras`.
 
 O processo **precisa continuar rodando** para o onboarding funcionar (DM de
-boas-vindas, apelido automático, liberação de acesso). Isso significa
-hospedar em algum lugar sempre ligado: um VPS barato, Railway, Render, um
-Raspberry Pi, ou mesmo seu PC ligado o tempo todo. Não é um script de rodar
-uma vez e desligar.
+boas-vindas, apelido automático, liberação de acesso). Rodar `python bot.py`
+direto no seu terminal só funciona enquanto o terminal estiver aberto —
+serve pra testar, não pra produção.
 
-## 4. Atualizar quando o escopo mudar
+## 4. Hospedagem definitiva (produção)
+
+Pra rodar 24/7 de verdade, escolha uma opção:
+
+### Opção recomendada: Railway (gratuito p/ uso leve, sem cartão pra começar)
+
+1. Suba este repositório no GitHub (ou use o que já está aqui).
+2. Em https://railway.app → **New Project → Deploy from GitHub repo** →
+   selecione o repositório.
+3. Em **Settings → Root Directory**, aponte para `discord-setup`.
+4. Railway detecta o `Procfile` automaticamente e sobe o processo `worker:
+   python bot.py`. Se pedir, defina o **Start Command** manualmente como
+   `python bot.py`.
+5. Em **Settings → Deploy**, garanta que o **Builder** instala
+   `requirements.txt` (padrão do Railway com Nixpacks já faz isso
+   sozinho).
+6. Em **Variables**, adicione `DISCORD_BOT_TOKEN` e `DISCORD_GUILD_ID`
+   (os mesmos valores do seu `.env` local — **não** suba o `.env` pro
+   GitHub, ele já está no `.gitignore`).
+7. Deploy. Acompanhe os logs em **Deployments → View Logs** — deve
+   aparecer `Conectado como <nome-do-bot>` e depois `Pronto. Cargos
+   ativos: ...`.
+
+Esse serviço fica em **worker**, não **web** — não precisa expor porta
+HTTP nenhuma, é só o processo do bot conectado ao Discord.
+
+### Alternativa: VPS / PC próprio sempre ligado
+
+```bash
+# dentro de discord-setup/, com o venv já criado
+nohup python bot.py > bot.log 2>&1 &
+```
+
+Ou, melhor, como serviço do systemd (Linux) pra reiniciar sozinho se cair:
+
+```ini
+# /etc/systemd/system/discord-comunidade.service
+[Unit]
+Description=Bot Discord da comunidade
+After=network.target
+
+[Service]
+WorkingDirectory=/caminho/para/discord-setup
+ExecStart=/caminho/para/discord-setup/.venv/bin/python bot.py
+Restart=always
+EnvironmentFile=/caminho/para/discord-setup/.env
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable --now discord-comunidade
+```
+
+## 5. Atualizar quando o escopo mudar
 
 Edite `config.yaml` e depois:
 

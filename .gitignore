@@ -4,6 +4,7 @@ dist/
 web-build/
 .env
 .env.local
+.venv/
 *.log
 npm-debug.*
 yarn-debug.*
