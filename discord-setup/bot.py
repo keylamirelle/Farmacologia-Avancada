@@ -73,24 +73,35 @@ class SetupBot(discord.Client):
         role = discord.utils.get(guild.roles, name=role_cfg["name"])
         perms = discord.Permissions(**{p: True for p in role_cfg.get("permissions", [])})
         color = hex_to_color(role_cfg["color"])
-        if role is None:
-            role = await guild.create_role(
-                name=role_cfg["name"],
-                color=color,
-                hoist=role_cfg.get("hoist", False),
-                mentionable=role_cfg.get("mentionable", False),
-                permissions=perms,
-                reason="discord-setup: sync config.yaml",
+        try:
+            if role is None:
+                role = await guild.create_role(
+                    name=role_cfg["name"],
+                    color=color,
+                    hoist=role_cfg.get("hoist", False),
+                    mentionable=role_cfg.get("mentionable", False),
+                    permissions=perms,
+                    reason="discord-setup: sync config.yaml",
+                )
+                log.info("Cargo criado: %s", role.name)
+            else:
+                await role.edit(
+                    color=color,
+                    hoist=role_cfg.get("hoist", False),
+                    mentionable=role_cfg.get("mentionable", False),
+                    permissions=perms,
+                    reason="discord-setup: sync config.yaml",
+                )
+        except discord.Forbidden:
+            log.warning(
+                "Sem permissão pra gerenciar o cargo '%s' -- ele está acima do cargo do bot "
+                "na hierarquia. Peça pro dono do servidor arrastar o cargo do bot acima dele. "
+                "Seguindo sem atualizar esse cargo por enquanto.",
+                role_cfg["name"],
             )
-            log.info("Cargo criado: %s", role.name)
-        else:
-            await role.edit(
-                color=color,
-                hoist=role_cfg.get("hoist", False),
-                mentionable=role_cfg.get("mentionable", False),
-                permissions=perms,
-                reason="discord-setup: sync config.yaml",
-            )
+            if role is None:
+                # Não dá pra criar nem editar -- sem essa role, overwrites de canal vão falhar.
+                raise
         return role
 
     def overwrites_for(self, guild: discord.Guild, roles_by_name: dict, visibility: str,
@@ -113,11 +124,16 @@ class SetupBot(discord.Client):
     async def get_or_create_category(self, guild: discord.Guild, name: str, position: int,
                                       overwrites: dict) -> discord.CategoryChannel:
         category = discord.utils.get(guild.categories, name=name)
-        if category is None:
-            category = await guild.create_category(name, overwrites=overwrites, position=position)
-            log.info("Categoria criada: %s", name)
-        else:
-            await category.edit(overwrites=overwrites, position=position)
+        try:
+            if category is None:
+                category = await guild.create_category(name, overwrites=overwrites, position=position)
+                log.info("Categoria criada: %s", name)
+            else:
+                await category.edit(overwrites=overwrites, position=position)
+        except discord.Forbidden:
+            log.warning("Sem permissão pra gerenciar a categoria '%s' -- pulando.", name)
+            if category is None:
+                raise
         return category
 
     async def get_or_create_channel(self, guild: discord.Guild, category: discord.CategoryChannel,
@@ -126,22 +142,25 @@ class SetupBot(discord.Client):
         is_voice = chan_cfg["type"] == "audio"
         existing = discord.utils.get(category.channels, name=name.lower().replace(" ", "-") if not is_voice else name)
         existing = existing or discord.utils.get(guild.channels, name=name)
-        if is_voice:
-            if existing is None:
-                existing = await guild.create_voice_channel(
-                    name, category=category, overwrites=overwrites, position=position
-                )
-                log.info("Canal de voz criado: %s", name)
+        try:
+            if is_voice:
+                if existing is None:
+                    existing = await guild.create_voice_channel(
+                        name, category=category, overwrites=overwrites, position=position
+                    )
+                    log.info("Canal de voz criado: %s", name)
+                else:
+                    await existing.edit(category=category, overwrites=overwrites, position=position)
             else:
-                await existing.edit(category=category, overwrites=overwrites, position=position)
-        else:
-            if existing is None:
-                existing = await guild.create_text_channel(
-                    name, category=category, overwrites=overwrites, position=position
-                )
-                log.info("Canal de texto criado: %s", name)
-            else:
-                await existing.edit(category=category, overwrites=overwrites, position=position)
+                if existing is None:
+                    existing = await guild.create_text_channel(
+                        name, category=category, overwrites=overwrites, position=position
+                    )
+                    log.info("Canal de texto criado: %s", name)
+                else:
+                    await existing.edit(category=category, overwrites=overwrites, position=position)
+        except discord.Forbidden:
+            log.warning("Sem permissão pra gerenciar o canal '%s' -- pulando.", name)
         return existing
 
     async def sync_structure(self, guild: discord.Guild):
