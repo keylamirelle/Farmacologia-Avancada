@@ -1,0 +1,339 @@
+"""
+Bot de configuração e onboarding do servidor de Discord da comunidade.
+
+O que ele faz:
+  1. Ao iniciar (ou via comando /sync), aplica config.yaml no servidor:
+     cria/atualiza cargos, categorias e canais (texto e áudio), na ordem e
+     com as visibilidades descritas no config. Nunca deleta nada que não
+     esteja no config -- é seguro reexecutar a qualquer momento.
+  2. Publica/atualiza a mensagem de regras no canal #regras, com um botão
+     "Li e concordo" que libera o cargo Participantes.
+  3. Quando alguém entra no servidor, manda uma DM perguntando nick e
+     classe, ajusta o apelido, e direciona a pessoa para o canal de regras.
+
+Rode com: python bot.py
+Configuração: variáveis de ambiente em .env (veja .env.example) + config.yaml
+"""
+
+import asyncio
+import logging
+import os
+
+import discord
+import yaml
+from discord import app_commands
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("discord-setup")
+
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
+
+VISIBILITY_ROLE = {
+    "participantes": "Participantes",
+    "membros": "Membros",
+    "moderacao": "Moderação",
+}
+
+
+def load_config() -> dict:
+    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+def hex_to_color(hex_str: str) -> discord.Color:
+    return discord.Color(int(hex_str.lstrip("#"), 16))
+
+
+intents = discord.Intents.default()
+intents.members = True          # necessário para on_member_join
+intents.message_content = True  # necessário para ler a resposta da DM
+
+
+class SetupBot(discord.Client):
+    def __init__(self):
+        super().__init__(intents=intents)
+        self.tree = app_commands.CommandTree(self)
+        self.config = load_config()
+        self.guild_id = int(os.getenv("DISCORD_GUILD_ID") or self.config["server"]["guild_id"])
+        # nick, classe pendentes de quem já respondeu a DM (evita corrida)
+        self._onboarding_locks: dict[int, asyncio.Lock] = {}
+
+    async def setup_hook(self):
+        guild_obj = discord.Object(id=self.guild_id)
+        self.tree.copy_global_to(guild=guild_obj)
+        await self.tree.sync(guild=guild_obj)
+
+    # ------------------------------------------------------------------
+    # Sincronização de cargos / categorias / canais a partir do config.yaml
+    # ------------------------------------------------------------------
+    async def get_or_create_role(self, guild: discord.Guild, role_cfg: dict) -> discord.Role:
+        role = discord.utils.get(guild.roles, name=role_cfg["name"])
+        perms = discord.Permissions(**{p: True for p in role_cfg.get("permissions", [])})
+        color = hex_to_color(role_cfg["color"])
+        if role is None:
+            role = await guild.create_role(
+                name=role_cfg["name"],
+                color=color,
+                hoist=role_cfg.get("hoist", False),
+                mentionable=role_cfg.get("mentionable", False),
+                permissions=perms,
+                reason="discord-setup: sync config.yaml",
+            )
+            log.info("Cargo criado: %s", role.name)
+        else:
+            await role.edit(
+                color=color,
+                hoist=role_cfg.get("hoist", False),
+                mentionable=role_cfg.get("mentionable", False),
+                permissions=perms,
+                reason="discord-setup: sync config.yaml",
+            )
+        return role
+
+    def overwrites_for(self, guild: discord.Guild, roles_by_name: dict, visibility: str,
+                        deny_send_everyone: bool = False) -> dict:
+        everyone = guild.default_role
+        if visibility == "publico":
+            ow = {}
+            if deny_send_everyone:
+                ow[everyone] = discord.PermissionOverwrite(send_messages=False)
+            return ow
+        ow = {everyone: discord.PermissionOverwrite(view_channel=False)}
+        target_role_name = VISIBILITY_ROLE[visibility]
+        ow[roles_by_name[target_role_name]] = discord.PermissionOverwrite(view_channel=True)
+        # Se a visibilidade não é "participantes", nega explicitamente o
+        # cargo Participantes pra não vazar acesso via ordem de cargos.
+        if visibility != "participantes" and "Participantes" in roles_by_name:
+            ow[roles_by_name["Participantes"]] = discord.PermissionOverwrite(view_channel=False)
+        return ow
+
+    async def get_or_create_category(self, guild: discord.Guild, name: str, position: int,
+                                      overwrites: dict) -> discord.CategoryChannel:
+        category = discord.utils.get(guild.categories, name=name)
+        if category is None:
+            category = await guild.create_category(name, overwrites=overwrites, position=position)
+            log.info("Categoria criada: %s", name)
+        else:
+            await category.edit(overwrites=overwrites, position=position)
+        return category
+
+    async def get_or_create_channel(self, guild: discord.Guild, category: discord.CategoryChannel,
+                                     chan_cfg: dict, position: int, overwrites: dict):
+        name = chan_cfg["name"]
+        is_voice = chan_cfg["type"] == "audio"
+        existing = discord.utils.get(category.channels, name=name.lower().replace(" ", "-") if not is_voice else name)
+        existing = existing or discord.utils.get(guild.channels, name=name)
+        if is_voice:
+            if existing is None:
+                existing = await guild.create_voice_channel(
+                    name, category=category, overwrites=overwrites, position=position
+                )
+                log.info("Canal de voz criado: %s", name)
+            else:
+                await existing.edit(category=category, overwrites=overwrites, position=position)
+        else:
+            if existing is None:
+                existing = await guild.create_text_channel(
+                    name, category=category, overwrites=overwrites, position=position
+                )
+                log.info("Canal de texto criado: %s", name)
+            else:
+                await existing.edit(category=category, overwrites=overwrites, position=position)
+        return existing
+
+    async def sync_structure(self, guild: discord.Guild):
+        log.info("Sincronizando estrutura do servidor '%s'...", guild.name)
+
+        # 1) Cargos (ordem: Participantes -> ... -> Liderança)
+        roles_by_name = {}
+        for role_cfg in sorted(self.config["roles"], key=lambda r: r["position"]):
+            roles_by_name[role_cfg["name"]] = await self.get_or_create_role(guild, role_cfg)
+
+        # posiciona os cargos gerenciados logo abaixo do cargo mais alto do
+        # bot (o bot só pode reordenar cargos abaixo do seu próprio cargo)
+        try:
+            ordered = sorted(self.config["roles"], key=lambda r: r["position"])
+            positions = {roles_by_name[r["name"]]: i + 1 for i, r in enumerate(ordered)}
+            await guild.edit_role_positions(positions=positions)
+        except discord.Forbidden:
+            log.warning(
+                "Sem permissão pra reordenar cargos -- arraste o cargo do bot "
+                "acima de 'Liderança' em Configurações do Servidor > Cargos."
+            )
+
+        # 2) Categorias e canais
+        for cat_cfg in sorted(self.config["categories"], key=lambda c: c["order"]):
+            deny_send = any(ch.get("somente_leitura") for ch in cat_cfg["channels"])
+            cat_overwrites = self.overwrites_for(guild, roles_by_name, cat_cfg["visibility"])
+            category = await self.get_or_create_category(
+                guild, cat_cfg["name"], cat_cfg["order"], cat_overwrites
+            )
+
+            for idx, chan_cfg in enumerate(cat_cfg["channels"]):
+                visibility = chan_cfg.get("visibility_override", cat_cfg["visibility"])
+                chan_overwrites = self.overwrites_for(
+                    guild, roles_by_name, visibility,
+                    deny_send_everyone=chan_cfg.get("somente_leitura", False),
+                )
+                await self.get_or_create_channel(guild, category, chan_cfg, idx, chan_overwrites)
+
+        log.info("Sincronização concluída.")
+        return roles_by_name
+
+    # ------------------------------------------------------------------
+    # Mensagem de regras + botão persistente
+    # ------------------------------------------------------------------
+    def build_rules_embeds(self) -> list[discord.Embed]:
+        rules_cfg = self.config["rules"]
+        embeds = []
+        current = discord.Embed(title=rules_cfg["titulo"], description=rules_cfg["intro"],
+                                 color=discord.Color.blurple())
+        embeds.append(current)
+        for item in rules_cfg["itens"]:
+            if len(current.fields) >= 5:
+                current = discord.Embed(color=discord.Color.blurple())
+                embeds.append(current)
+            current.add_field(name=item["titulo"], value=item["texto"][:1024], inline=False)
+        return embeds
+
+    async def ensure_rules_message(self, guild: discord.Guild):
+        onboarding = self.config["onboarding"]
+        channel = discord.utils.get(guild.text_channels, name=onboarding["regras_channel"])
+        if channel is None:
+            log.warning("Canal de regras '%s' não encontrado -- rode a sincronização primeiro.",
+                        onboarding["regras_channel"])
+            return
+
+        marker = "discord-setup:regras"
+        target_message = None
+        async for msg in channel.history(limit=50):
+            if msg.author.id == self.user.id and msg.embeds and msg.embeds[0].footer.text == marker:
+                target_message = msg
+                break
+
+        embeds = self.build_rules_embeds()
+        embeds[-1].set_footer(text=marker)
+        view = RulesView(self, onboarding)
+
+        if target_message:
+            await target_message.edit(embeds=embeds, view=view)
+        else:
+            await channel.send(embeds=embeds, view=view)
+
+    # ------------------------------------------------------------------
+    # Onboarding: DM perguntando nick/classe + ajuste de apelido
+    # ------------------------------------------------------------------
+    async def on_member_join(self, member: discord.Member):
+        onboarding = self.config["onboarding"]
+        try:
+            dm = await member.create_dm()
+            await dm.send(onboarding["dm_boas_vindas"])
+        except discord.Forbidden:
+            guild = member.guild
+            channel = discord.utils.get(guild.text_channels, name=onboarding["boas_vindas_channel"])
+            if channel:
+                await channel.send(
+                    f"{member.mention} não consegui te mandar DM! Abra suas mensagens diretas "
+                    f"pra membros do servidor e me envie qualquer mensagem por aqui que eu "
+                    f"configuro seu acesso, ou chame a Moderação."
+                )
+            return
+
+        def check(m: discord.Message):
+            return m.author.id == member.id and isinstance(m.channel, discord.DMChannel)
+
+        try:
+            reply = await self.wait_for("message", check=check, timeout=1800)
+        except asyncio.TimeoutError:
+            await dm.send(
+                "Não recebi sua resposta a tempo. Sem problema -- me manda uma mensagem "
+                "aqui (`Nick, Classe`) quando puder que eu configuro seu apelido."
+            )
+            return
+
+        nick, classe = self._parse_nick_classe(reply.content)
+        if nick is None:
+            await dm.send(
+                "Não entendi. Manda no formato `Nick, Classe`, "
+                "exemplo: `Fulano, Assassin Cross`."
+            )
+            return
+
+        novo_nick = onboarding["nickname_template"].format(nick=nick, classe=classe)[:32]
+        try:
+            await member.edit(nick=novo_nick, reason="discord-setup: onboarding")
+        except discord.Forbidden:
+            log.warning("Sem permissão pra editar apelido de %s.", member)
+
+        await dm.send(
+            onboarding["dm_apos_cadastrar_nick"].format(
+                nick=nick, regras_channel=onboarding["regras_channel"]
+            )
+        )
+
+    @staticmethod
+    def _parse_nick_classe(text: str):
+        if "," not in text:
+            return None, None
+        nick, _, classe = text.partition(",")
+        nick, classe = nick.strip(), classe.strip()
+        if not nick or not classe:
+            return None, None
+        return nick, classe
+
+    async def on_ready(self):
+        log.info("Conectado como %s", self.user)
+        guild = self.get_guild(self.guild_id)
+        if guild is None:
+            log.error("Guild ID %s não encontrado -- o bot está nesse servidor?", self.guild_id)
+            return
+        roles_by_name = await self.sync_structure(guild)
+        self.add_view(RulesView(self, self.config["onboarding"]))
+        await self.ensure_rules_message(guild)
+        log.info("Pronto. Cargos ativos: %s", ", ".join(roles_by_name))
+
+
+class RulesView(discord.ui.View):
+    """Botão persistente (sobrevive a restart do bot, via custom_id fixo)."""
+
+    def __init__(self, client: "SetupBot", onboarding_cfg: dict):
+        super().__init__(timeout=None)
+        self.client = client
+        self.onboarding_cfg = onboarding_cfg
+        self.confirmar.label = onboarding_cfg["botao_confirmar_label"]
+
+    @discord.ui.button(style=discord.ButtonStyle.success, custom_id="discord-setup:confirmar_regras")
+    async def confirmar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        role_name = self.onboarding_cfg["cargo_liberado_apos_confirmar"]
+        role = discord.utils.get(interaction.guild.roles, name=role_name)
+        if role is None:
+            await interaction.response.send_message(
+                "Cargo de acesso não encontrado -- avise a Liderança.", ephemeral=True
+            )
+            return
+        await interaction.user.add_roles(role, reason="Confirmou leitura das regras")
+        await interaction.response.send_message(self.onboarding_cfg["msg_apos_confirmar"], ephemeral=True)
+
+
+client = SetupBot()
+tree = client.tree
+
+
+@tree.command(name="sync", description="Reaplica config.yaml no servidor (cargos, canais e regras).")
+@app_commands.checks.has_permissions(administrator=True)
+async def sync_command(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    client.config = load_config()  # recarrega o arquivo do zero
+    await client.sync_structure(interaction.guild)
+    await client.ensure_rules_message(interaction.guild)
+    await interaction.followup.send("Configuração sincronizada com sucesso. ✅", ephemeral=True)
+
+
+if __name__ == "__main__":
+    token = os.getenv("DISCORD_BOT_TOKEN")
+    if not token:
+        raise SystemExit("Defina DISCORD_BOT_TOKEN no arquivo .env (veja .env.example).")
+    client.run(token)

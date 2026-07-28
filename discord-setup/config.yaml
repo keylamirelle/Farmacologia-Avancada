@@ -1,0 +1,418 @@
+# =============================================================================
+# Config declarativo do servidor de Discord da comunidade/clã.
+# Este arquivo é a fonte da verdade: sempre que o escopo mudar (novo cargo,
+# novo canal, nova regra), edite aqui e rode "/sync" no Discord (ou reinicie
+# o bot) para aplicar. O bot NUNCA deleta nada que não esteja listado aqui,
+# apenas cria e atualiza o que está descrito.
+# =============================================================================
+
+server:
+  # Preencha com o ID numérico do seu servidor (modo desenvolvedor > botão
+  # direito no servidor > "Copiar ID").
+  guild_id: 000000000000000000
+
+# -----------------------------------------------------------------------------
+# CARGOS
+# -----------------------------------------------------------------------------
+# Modelo adotado: cada cargo abaixo é CUMULATIVO. Quem é Membro também está
+# marcado com o cargo Participante; quem é Moderação também tem Participante +
+# Membro; quem é Liderança tem todos. É assim que a "herança de benefícios"
+# funciona de fato no Discord (permissões de canal seguem a união dos cargos
+# que a pessoa possui). O bot cuida de atribuir os cargos inferiores
+# automaticamente ao promover alguém via comando administrativo.
+#
+# "permissions" aqui = permissões TÉCNICAS do servidor (o que o cargo pode
+# fazer/administrar). Os "benefícios" descritos no escopo (acesso a acervo,
+# lista de vendedores etc.) são implementados como visibilidade de canal
+# (seção "channels" abaixo), não como permissão de servidor.
+roles:
+  - name: "Participantes"
+    color: "#95A5A6"
+    hoist: true
+    mentionable: false
+    position: 1
+    permissions:
+      - view_channel
+      - send_messages
+      - read_message_history
+      - add_reactions
+      - embed_links
+      - attach_files
+      - connect
+      - speak
+      - use_external_emojis
+    description_publica: "Acessam nossas comunidades e canais gerais."
+
+  - name: "Membros"
+    color: "#2ECC71"
+    hoist: true
+    mentionable: false
+    position: 2
+    permissions: []  # nenhuma permissão extra de servidor; benefício = acesso a canal
+    # Texto completo só é exibido no canal privado #beneficios-membros
+    # (visível apenas para Membros+), conforme pedido: "deve ser algo
+    # merecido, não almejado" — Participantes não veem essa lista em lugar nenhum.
+    beneficios:
+      - "Acesso ao acervo de grupos de comércio do Nidhogg."
+      - "Acesso a uma lista de vendedores de zenys com histórico de venda."
+      - "Acesso ao clã principal dentro do jogo, com diversos itens para empréstimo no armazém (refinar, bem como selecionar os membros)."
+      - "Prioridade na organização de plantéis, instâncias e atividades coletivas."
+
+  - name: "Moderação"
+    color: "#3498DB"
+    hoist: true
+    mentionable: true
+    position: 3
+    permissions:
+      - kick_members
+      - moderate_members   # timeout
+      - manage_messages
+      - manage_nicknames
+      - mention_everyone
+    beneficios:
+      - "Aprova/reprova novas requisições de entrada na comunidade."
+      - "Organiza e alerta sobre instâncias e atividades conjuntas."
+      - "Acesso a canais de moderação."
+
+  - name: "Liderança"
+    color: "#E67E22"
+    hoist: true
+    mentionable: true
+    position: 4
+    permissions:
+      - administrator
+    beneficios:
+      - "Organiza votações e reuniões para alinhamentos e decisões."
+      - "Possui controle das configurações do servidor do Discord."
+
+# -----------------------------------------------------------------------------
+# ONBOARDING (entrada de novos membros)
+# -----------------------------------------------------------------------------
+onboarding:
+  # Canal usado no "direcionamento" final da DM e onde o botão de
+  # confirmação das regras fica fixado.
+  regras_channel: "regras"
+  boas_vindas_channel: "boas-vindas"
+  beneficios_channel: "beneficios-membros"
+
+  # Cargo liberado quando a pessoa confirma que leu as regras.
+  cargo_liberado_apos_confirmar: "Participantes"
+
+  dm_boas_vindas: >
+    Fala! Seja muito bem-vindo(a) à comunidade! 🎉
+
+    Pra eu liberar seu acesso, me conta seu **nick** e sua **classe
+    principal** no jogo, no formato:
+
+    `Nick, Classe`
+
+    Exemplo: `Fulano, Assassin Cross`
+
+  dm_apos_cadastrar_nick: >
+    Prontinho, {nick}! Já ajustei seu apelido no servidor. ✅
+
+    Agora vai lá no canal **#{regras_channel}**, leia com calma e clique
+    no botão **"Li e concordo com as regras"** pra liberar seu acesso aos
+    demais canais.
+
+  # Template do apelido aplicado no servidor.
+  nickname_template: "[{classe}] {nick}"
+
+  botao_confirmar_label: "✅ Li e concordo com as regras"
+  msg_apos_confirmar: >
+    Bem-vindo(a) à comunidade! Seu acesso aos demais canais foi liberado. 🎉
+
+  # Nota: se a pessoa tiver DMs fechadas pra membros do servidor, o bot não
+  # consegue mandar a mensagem inicial. Nesse caso ele avisa no canal de
+  # boas-vindas pedindo pra ela abrir as DMs e enviar qualquer mensagem pro
+  # bot para tentar de novo.
+
+# -----------------------------------------------------------------------------
+# REGRAS DA COMUNIDADE
+# -----------------------------------------------------------------------------
+# Ordem já ajustada conforme pedido:
+# - Itens 6 (empréstimo) e 10 (transparência) do texto original foram
+#   unificados num único tópico.
+# - "Decisões da administração" (item 8 original) foi movido para o final.
+# - Item de "Ausências" ganhou a ressalva: presença não é obrigatória, só a
+#   presença CONFIRMADA é que precisa ser avisada em caso de cancelamento.
+rules:
+  titulo: "📜 Regras da Comunidade"
+  intro: >
+    Antes de liberar seu acesso, leia com atenção. Ao clicar em concordar
+    logo abaixo, você confirma que leu e está de acordo com todos os itens.
+  itens:
+    - titulo: "1. Respeito acima de tudo"
+      texto: >
+        Aqui é um espaço de acolhimento e partilha de saberes. O respeito é
+        o principal valor da comunidade. Trate todos os participantes com
+        educação, independentemente do tempo de convivência ou nível de
+        intimidade.
+
+    - titulo: "2. Discriminação e ataques pessoais"
+      texto: >
+        Não toleramos qualquer forma de discriminação, preconceito ou
+        discurso ofensivo relacionado a raça ou etnia, nacionalidade,
+        religião ou crença, identidade de gênero, orientação sexual,
+        deficiência ou qualquer outra característica pessoal. Ataques
+        pessoais, assédio, perseguição ou comportamento tóxico também não
+        serão aceitos.
+
+    - titulo: "3. Bom senso na comunicação"
+      texto: >
+        Sabemos que alguns membros possuem amizade e liberdade para
+        brincadeiras entre si. Porém, quem está de fora não conhece essas
+        relações. Evite brincadeiras, ofensas ou comentários que possam ser
+        interpretados como desrespeito por outros participantes. Algumas
+        pessoas desenvolveram relações únicas e complexas que permitem uma
+        liberdade maior — pedimos compreensão sobre esses casos atípicos,
+        pois entendemos a ambiguidade dessas relações, mas não permitimos
+        desrespeito de fato.
+
+    - titulo: "4. Organização e divisão de loot"
+      texto: >
+        Cada grupo pode definir previamente como será feita a divisão dos
+        itens obtidos durante uma atividade. Caso não exista um acordo antes
+        da instância, passam a valer as seguintes regras:
+
+        **4.1 Divisão padrão** — Todo loot obtido deverá ser dividido
+        igualmente entre todos os participantes que contribuíram para a
+        realização da instância.
+
+        **4.2 Venda de itens** — Caso um item seja vendido, o responsável
+        pela venda deverá apresentar um print da negociação concluída antes
+        da divisão do valor.
+
+        **4.3 Personagens "mochila"** — Personagens que participaram apenas
+        para receber drop, sem contribuir efetivamente para a conclusão do
+        conteúdo, não participam da divisão coletiva. Nesses casos, o
+        jogador mantém apenas os drops individuais garantidos pela
+        instância (ex.: Mana Coagula e Sombria na OGH, Fragmento de
+        Ametista na Freya...).
+
+        **4.4 Compra por integrante do grupo** — Caso um dos participantes
+        queira ficar com um item obtido durante a instância, ele poderá
+        adquiri-lo pagando imediatamente aos demais participantes o valor
+        correspondente às suas cotas.
+
+    - titulo: "5. Compromisso com conteúdos em grupo"
+      texto: >
+        Ao participar de conteúdos coletivos, espera-se que cada jogador
+        esteja preparado para contribuir com a conclusão da atividade,
+        utilize equipamentos e recursos compatíveis com o conteúdo, e
+        mantenha compromisso com o grupo durante toda a execução. Não é
+        esperado que todos possuam equipamentos perfeitos, mas espera-se que
+        cada participante faça sua parte. Consumíveis como elixir,
+        Yggdrasil e Sieg são fortemente recomendados sempre que possível.
+        Economizar recursos a ponto de comprometer o sucesso do grupo,
+        abandonar a atividade sem justificativa ou deixar de colaborar
+        poderá resultar em restrição ou suspensão da participação em
+        conteúdos organizados pela comunidade.
+
+    - titulo: "6. Empréstimo de itens e transparência nas negociações"
+      texto: >
+        O empréstimo de equipamentos e itens deve ocorrer apenas entre
+        pessoas que possuam confiança mútua. A administração da comunidade
+        não se responsabiliza por perdas, golpes, desaparecimento de itens
+        ou conflitos decorrentes de empréstimos. Qualquer acordo envolvendo
+        venda de itens, divisão de zeny ou empréstimos deve ser transparente
+        entre todos os envolvidos.
+
+    - titulo: "7. Bom senso e convivência"
+      texto: >
+        Nem toda brincadeira é apropriada para todos. Sua opinião é
+        bem-vinda apenas quando solicitada — lembre que seu ponto de vista
+        nem sempre é o relevante em determinadas situações. Fale sobre a
+        build ou escolhas de outro membro quando for solicitado. A
+        intimidade entre alguns membros foi construída ao longo do tempo e
+        não deve servir de referência para a forma como novos participantes
+        tratam os demais. Se você não possui esse nível de proximidade com
+        alguém, mantenha uma postura respeitosa.
+
+    - titulo: "8. Resolução de conflitos"
+      texto: >
+        Desentendimentos devem ser tratados preferencialmente em privado, em
+        casos específicos com mediação da administração. Evite discussões
+        públicas que prejudiquem o ambiente da comunidade.
+
+    - titulo: "9. Bug/exploit/script"
+      texto: >
+        É proibido explorar bugs, utilizar programas ilegais ou qualquer
+        prática que prejudique outros jogadores ou coloque a credibilidade
+        da comunidade em risco.
+
+    - titulo: "10. Ausências"
+      texto: >
+        Sua presença nas atividades não é obrigatória. O que importa é a
+        presença CONFIRMADA: caso você confirme presença em um conteúdo
+        organizado e não possa mais participar, avise o grupo com
+        antecedência sempre que possível. A falta de aviso após confirmar é
+        considerada falta de respeito com os demais participantes.
+
+    - titulo: "11. Prioridade do grupo"
+      texto: >
+        Durante conteúdos organizados pela comunidade, decisões individuais
+        não devem prejudicar o restante da equipe. Exemplos: sair antes do
+        término sem avisar, recusar estratégias previamente combinadas,
+        priorizar lucro individual em detrimento de terceiros, ou agir de
+        forma que coloque a conclusão da atividade em risco.
+
+    - titulo: "12. Penalidades"
+      texto: >
+        O descumprimento das regras poderá resultar em advertência,
+        suspensão temporária de atividades em grupo, ou remoção da
+        comunidade em casos graves ou reincidentes. As decisões não seguem
+        uma ordem de execução fixa: de acordo com a gravidade da atitude, o
+        participante pode ser removido diretamente, sem advertência prévia.
+
+    - titulo: "13. Decisões da administração"
+      texto: >
+        A administração poderá intervir em situações não previstas nas
+        regras, sempre buscando preservar o bom ambiente da comunidade.
+
+# -----------------------------------------------------------------------------
+# CANAIS
+# -----------------------------------------------------------------------------
+# "visibility" controla quem VÊ o canal:
+#   publico       -> @everyone (inclusive quem ainda não confirmou as regras)
+#   participantes -> Participantes+ (padrão da maioria dos canais)
+#   membros       -> Membros+ (Moderação/Liderança também veem, por serem cumulativos)
+#   moderacao     -> Moderação+ (Liderança também vê)
+#
+# ATENÇÃO (2 canais marcados "integracao_latam: true"): o Discord não deixa
+# um bot "seguir" outro canal via API — isso é feito manualmente por um
+# humano com acesso aos dois servidores, clicando em "Seguir Canal" no
+# canal de origem do servidor LATAM. O bot só cria o canal vazio aqui;
+# a integração em si é um passo manual (ver README).
+#
+# O canal "whats" é só um link/aviso do grupo de WhatsApp da comunidade,
+# conforme confirmado.
+categories:
+  - name: "🚪 ENTRADA"
+    order: 1
+    visibility: publico
+    channels:
+      - name: "boas-vindas"
+        type: texto
+      - name: "regras"
+        type: texto
+        somente_leitura: true   # @everyone lê, só o bot posta
+
+  - name: "🔒 ACESSO MEMBROS"
+    order: 2
+    visibility: membros
+    channels:
+      - name: "beneficios-membros"
+        type: texto
+
+  - name: "📢 INFORMAÇÕES"
+    order: 3
+    visibility: participantes
+    channels:
+      - name: "anuncio-de-instancias"
+        type: texto
+      - name: "espolios-de-instancias"
+        type: texto
+      - name: "status-xp-drop-penalidade"
+        type: texto
+      - name: "comunicados-da-guilda"
+        type: texto
+
+  - name: "🎮 COMUNIDADE"
+    order: 4
+    visibility: participantes
+    channels:
+      - name: "musica"
+        type: texto
+      - name: "builds"
+        type: texto
+      - name: "ferramentas"
+        type: texto
+      - name: "outfit"
+        type: texto
+      - name: "divulgue-seu-conteudo"
+        type: texto
+      - name: "whats"
+        type: texto
+
+  - name: "💰 COMÉRCIO"
+    order: 5
+    visibility: participantes
+    channels:
+      - name: "comercio"
+        type: texto
+      - name: "vendas"
+        type: texto
+        visibility_override: membros   # "para membros+", conforme escopo
+
+  - name: "🌎 LATAM"
+    order: 6
+    visibility: participantes
+    channels:
+      - name: "patch-notes-br"
+        type: texto
+        integracao_latam: true
+      - name: "anuncios-oficiais"
+        type: texto
+        integracao_latam: true
+
+  - name: "🛡️ MODERAÇÃO"
+    order: 7
+    visibility: moderacao
+    channels:
+      - name: "comunicacao-moderacao"
+        type: texto
+
+  - name: "🔊 SALAS GERAIS"
+    order: 8
+    visibility: participantes
+    channels:
+      - name: "warRoom"
+        type: audio
+      - name: "live"
+        type: audio
+      - name: "gravação"
+        type: audio
+
+  - name: "🔊 RAGNAROK"
+    order: 9
+    visibility: participantes
+    channels:
+      - name: "01-Ragnarok"
+        type: audio
+      - name: "02-Ragnarok"
+        type: audio
+      - name: "03-Ragnarok"
+        type: audio
+      - name: "04-Ragnarok"
+        type: audio
+      - name: "05-Ragnarok"
+        type: audio
+
+  - name: "🔊 LEAGUE OF LEGENDS"
+    order: 10
+    visibility: participantes
+    channels:
+      - name: "01-League of Legends"
+        type: audio
+      - name: "02-League of Legends"
+        type: audio
+      - name: "03-League of Legends"
+        type: audio
+      - name: "04-League of Legends"
+        type: audio
+      - name: "05-League of Legends"
+        type: audio
+
+  - name: "🔊 GERAL"
+    order: 11
+    visibility: participantes
+    channels:
+      # ATENÇÃO: sua mensagem foi cortada em "03-Geral" -- confirme se a
+      # lista termina aqui ou se seguia o padrão de 5 salas (04, 05).
+      - name: "01-Geral"
+        type: audio
+      - name: "02-Geral"
+        type: audio
+      - name: "03-Geral"
+        type: audio
