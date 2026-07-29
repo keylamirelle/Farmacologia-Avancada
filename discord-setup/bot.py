@@ -286,7 +286,7 @@ class SetupBot(discord.Client):
                 break
 
         embeds = self.build_rules_embeds()
-        embeds[-1].set_footer(text=marker)
+        embeds[0].set_footer(text=marker)  # precisa ser o [0] -- é o que a busca acima confere
         view = RulesView(self, onboarding)
 
         if target_message:
