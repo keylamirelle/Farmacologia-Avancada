@@ -32,11 +32,16 @@ log = logging.getLogger("discord-setup")
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 
-VISIBILITY_ROLE = {
-    "participantes": "Participantes",
-    "membros": "Membros",
-    "moderacao": "Moderação",
-    "lideranca": "Liderança",
+# Ordem hierárquica -- cada membro tem UM só desses cargos por vez (não é
+# mais cumulativo). Visibilidade de canal por tier X libera esse cargo e
+# todos os que vêm depois dele nesta lista.
+CARGOS_HIERARQUICOS = ["Participantes", "Membros", "Moderação", "Liderança"]
+
+VISIBILITY_TIER = {
+    "participantes": 0,
+    "membros": 1,
+    "moderacao": 2,
+    "lideranca": 3,
 }
 
 CHANNEL_TYPE_CLASS = {
@@ -120,13 +125,18 @@ class SetupBot(discord.Client):
             if deny_send_everyone:
                 ow[everyone] = discord.PermissionOverwrite(send_messages=False)
             return ow
+        # Cargo é único por pessoa (não cumulativo), então cada canal precisa
+        # liberar explicitamente o cargo alvo E todos os que vêm depois dele
+        # na hierarquia -- senão quem só tem "Liderança", por exemplo, não
+        # veria canais marcados como "membros" ou "participantes".
         ow = {everyone: discord.PermissionOverwrite(view_channel=False)}
-        target_role_name = VISIBILITY_ROLE[visibility]
-        ow[roles_by_name[target_role_name]] = discord.PermissionOverwrite(view_channel=True)
-        # Se a visibilidade não é "participantes", nega explicitamente o
-        # cargo Participantes pra não vazar acesso via ordem de cargos.
-        if visibility != "participantes" and "Participantes" in roles_by_name:
-            ow[roles_by_name["Participantes"]] = discord.PermissionOverwrite(view_channel=False)
+        tier = VISIBILITY_TIER[visibility]
+        liberados = set(CARGOS_HIERARQUICOS[tier:])
+        for nome in CARGOS_HIERARQUICOS:
+            role = roles_by_name.get(nome)
+            if role is None:
+                continue
+            ow[role] = discord.PermissionOverwrite(view_channel=(nome in liberados))
         return ow
 
     async def get_or_create_category(self, guild: discord.Guild, name: str, position: int,
@@ -423,13 +433,10 @@ async def sync_command(interaction: discord.Interaction):
     await interaction.followup.send("Configuração sincronizada com sucesso. ✅", ephemeral=True)
 
 
-CARGOS_HIERARQUICOS = ["Participantes", "Membros", "Moderação", "Liderança"]
-
-
-@tree.command(name="promover", description="Atribui um cargo (e os cargos abaixo dele) a um membro.")
+@tree.command(name="promover", description="Troca o cargo hierárquico de um membro (Participantes/Membros/Moderação/Liderança).")
 @app_commands.describe(
-    membro="Quem vai receber o cargo",
-    cargo="Cargo mais alto que a pessoa vai ter -- os cargos abaixo dele são dados junto (são cumulativos)",
+    membro="Quem vai trocar de cargo",
+    cargo="Novo cargo -- substitui qualquer um dos outros três que a pessoa já tinha",
 )
 @app_commands.choices(cargo=[app_commands.Choice(name=c, value=c) for c in CARGOS_HIERARQUICOS])
 @app_commands.checks.has_permissions(administrator=True)
@@ -439,31 +446,32 @@ async def promover_command(interaction: discord.Interaction, membro: discord.Mem
     # conta escapa disso. Como o cargo do bot está acima de todos, ele
     # consegue atribuir por quem chamou o comando (que precisa já ser
     # Liderança/Administrator pra poder chamar).
-    idx = CARGOS_HIERARQUICOS.index(cargo.value)
-    nomes = CARGOS_HIERARQUICOS[: idx + 1]
-
-    roles, faltando = [], []
-    for nome in nomes:
-        role = discord.utils.get(interaction.guild.roles, name=nome)
-        (roles if role else faltando).append(role or nome)
-
-    if faltando:
+    alvo_nome = cargo.value
+    alvo_role = discord.utils.get(interaction.guild.roles, name=alvo_nome)
+    if alvo_role is None:
         await interaction.response.send_message(
-            f"Não encontrei o(s) cargo(s) {', '.join(faltando)} -- rode /sync primeiro.", ephemeral=True
+            f"Não encontrei o cargo '{alvo_nome}' -- rode /sync primeiro.", ephemeral=True
         )
         return
 
+    # Cada pessoa tem só UM dos quatro cargos por vez -- remove qualquer
+    # outro que ela já tinha antes de dar o novo.
+    outros = [r for r in membro.roles if r.name in CARGOS_HIERARQUICOS and r.id != alvo_role.id]
+
     try:
-        await membro.add_roles(*roles, reason=f"Promovido por {interaction.user} via /promover")
+        if outros:
+            await membro.remove_roles(*outros, reason=f"Troca de cargo por {interaction.user} via /promover")
+        if alvo_role not in membro.roles:
+            await membro.add_roles(alvo_role, reason=f"Atribuído por {interaction.user} via /promover")
     except discord.Forbidden:
         await interaction.response.send_message(
-            "Sem permissão pra atribuir algum desses cargos -- confirme que o cargo do bot "
+            "Sem permissão pra alterar algum desses cargos -- confirme que o cargo do bot "
             "está acima de todos em Configurações do Servidor > Cargos.", ephemeral=True
         )
         return
 
     await interaction.response.send_message(
-        f"{membro.mention} agora tem: {', '.join(nomes)}. ✅", ephemeral=True
+        f"{membro.mention} agora tem apenas o cargo **{alvo_nome}**. ✅", ephemeral=True
     )
 
 

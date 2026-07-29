@@ -192,14 +192,9 @@ cargo dele está posicionado acima de todos:
 ```
 
 - Precisa ter **Administrator** (ou seja, já ser Liderança) pra chamar.
-- Dá os cargos abaixo junto, por serem cumulativos (ex: escolher
-  "Moderação" também dá Participantes e Membros).
-- Não remove cargos antigos automaticamente. Pra **remover** Moderação,
-  Membros ou Participantes de alguém, a interface normal do Discord
-  funciona (esses cargos estão abaixo de Liderança). Mas remover o
-  cargo **Liderança** de outra pessoa esbarra na mesma trava de
-  hierarquia -- se isso for necessário no futuro, me avisa que eu
-  adiciono um `/rebaixar` no mesmo esquema do `/promover`.
+- Cada pessoa tem só **um** dos quatro cargos por vez -- o comando **troca**:
+  remove qualquer um dos outros três que a pessoa já tinha e dá só o novo.
+  Não acumula.
 
 ## Como funciona o fluxo de entrada
 
@@ -214,25 +209,24 @@ cargo dele está posicionado acima de todos:
    regras"** → o bot concede o cargo **Participantes**, que libera o
    resto dos canais.
 5. Cargos acima de Participantes (Membros, Moderação, Liderança) são
-   **atribuídos manualmente** pela liderança/moderação — não há critério
-   automático definido no escopo atual.
+   **atribuídos manualmente** pela liderança, usando `/promover` — não há
+   critério automático definido no escopo atual.
 
 Caso a pessoa tenha DMs fechadas para membros do servidor, o bot avisa em
 `#boas-vindas` pedindo que ela abra as DMs e mande uma mensagem para ele
 tentar de novo.
 
-## Cargos e o modelo de "herança"
+## Cargos: um por pessoa, visibilidade em cascata
 
-O Discord não tem herança de permissões nativa entre cargos. O jeito que
-isso funciona de verdade é **cumulativo**: quem é Moderação também precisa
-estar marcado com Membros e Participantes; quem é Liderança tem os quatro.
-Assim, o acesso aos canais de Membros (`#beneficios-membros`, `#vendas`)
-soma automaticamente para Moderação e Liderança, sem precisar duplicar
-permissão em cada canal.
+Cada pessoa tem **um só** dos quatro cargos por vez (Participantes,
+Membros, Moderação ou Liderança) — trocar de cargo é troca mesmo, não
+soma. `/promover` já cuida disso: tira o cargo antigo e dá o novo.
 
-**Ação manual necessária**: ao promover alguém (ex: de Participante para
-Membro), atribua também o cargo anterior se ainda não tiver — o bot não
-promove ninguém sozinho, isso é uma decisão humana da Liderança/Moderação.
+A visibilidade dos canais continua "em cascata" (quem é Moderação
+enxerga tudo que Membros e Participantes veem), mas isso é resolvido
+pelo bot na hora de montar as permissões do canal — cada canal libera
+explicitamente todos os cargos daquele nível pra cima. Não depende da
+pessoa acumular cargos.
 
 Os "benefícios" de cada cargo (a lista do que cada um pode fazer/acessar)
 só aparecem escritos no canal `#beneficios-membros`, visível apenas para

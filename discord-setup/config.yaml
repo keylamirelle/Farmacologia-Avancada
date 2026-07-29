@@ -14,24 +14,29 @@ server:
 # -----------------------------------------------------------------------------
 # CARGOS
 # -----------------------------------------------------------------------------
-# Modelo adotado: cada cargo abaixo é CUMULATIVO. Quem é Membro também está
-# marcado com o cargo Participante; quem é Moderação também tem Participante +
-# Membro; quem é Liderança tem todos. É assim que a "herança de benefícios"
-# funciona de fato no Discord (permissões de canal seguem a união dos cargos
-# que a pessoa possui). O bot cuida de atribuir os cargos inferiores
-# automaticamente ao promover alguém via comando administrativo.
+# Modelo adotado: cada pessoa tem UM SÓ desses cargos por vez (não é
+# cumulativo). Trocar de cargo = trocar, não somar -- é o que o comando
+# /promover faz (remove o cargo antigo, dá o novo). A visibilidade de canal
+# ainda "sobe": quem é Moderação enxerga canais de Membros e Participantes
+# porque cada canal libera explicitamente todos os cargos daquele nível pra
+# cima (calculado pelo bot, não por acúmulo de cargo na pessoa).
 #
 # "permissions" aqui = permissões TÉCNICAS do servidor (o que o cargo pode
-# fazer/administrar). Os "benefícios" descritos no escopo (acesso a acervo,
-# lista de vendedores etc.) são implementados como visibilidade de canal
-# (seção "channels" abaixo), não como permissão de servidor.
+# fazer/administrar). Como não há mais acúmulo, cada cargo (exceto
+# Liderança, que já tem Administrator = tudo) repete as permissões básicas
+# de uso (ver canal, mandar mensagem, falar em call etc.) -- senão quem
+# tivesse só "Membros", por exemplo, ficaria sem essas permissões básicas.
+#
+# Os "benefícios" descritos no escopo (acesso a acervo, lista de
+# vendedores etc.) são implementados como visibilidade de canal (seção
+# "channels" abaixo), não como permissão de servidor.
 roles:
   - name: "Participantes"
     color: "#95A5A6"
     hoist: true
     mentionable: false
     position: 1
-    permissions:
+    permissions: &permissoes_basicas
       - view_channel
       - send_messages
       - read_message_history
@@ -48,7 +53,7 @@ roles:
     hoist: true
     mentionable: false
     position: 2
-    permissions: []  # nenhuma permissão extra de servidor; benefício = acesso a canal
+    permissions: *permissoes_basicas
     # Texto completo só é exibido no canal privado #beneficios-membros
     # (visível apenas para Membros+), conforme pedido: "deve ser algo
     # merecido, não almejado" — Participantes não veem essa lista em lugar nenhum.
@@ -64,6 +69,15 @@ roles:
     mentionable: true
     position: 3
     permissions:
+      - view_channel
+      - send_messages
+      - read_message_history
+      - add_reactions
+      - embed_links
+      - attach_files
+      - connect
+      - speak
+      - use_external_emojis
       - kick_members
       - moderate_members   # timeout
       - manage_messages
@@ -80,7 +94,7 @@ roles:
     mentionable: true
     position: 4
     permissions:
-      - administrator
+      - administrator   # já cobre tudo, inclusive ver/enviar/falar em canal
     beneficios:
       - "Organiza votações e reuniões para alinhamentos e decisões."
       - "Possui controle das configurações do servidor do Discord."
@@ -275,10 +289,12 @@ rules:
 # -----------------------------------------------------------------------------
 # "visibility" controla quem VÊ o canal:
 #   publico       -> @everyone (inclusive quem ainda não confirmou as regras)
-#   participantes -> Participantes+ (padrão da maioria dos canais)
-#   membros       -> Membros+ (Moderação/Liderança também veem, por serem cumulativos)
-#   moderacao     -> Moderação+ (Liderança também vê)
+#   participantes -> Participantes, Membros, Moderação e Liderança (todos veem)
+#   membros       -> Membros, Moderação e Liderança
+#   moderacao     -> Moderação e Liderança
 #   lideranca     -> só Liderança
+# (cada cargo é único por pessoa -- o bot libera explicitamente todos os
+# cargos "daquele nível pra cima" em cada canal, não depende de acúmulo)
 #
 # "type": texto, audio ou forum. IMPORTANTE sobre forum: o Discord não deixa
 # converter um canal de texto já existente em forum via API -- se já existir
