@@ -475,6 +475,32 @@ async def promover_command(interaction: discord.Interaction, membro: discord.Mem
     )
 
 
+@tree.command(name="apelido", description="Muda o apelido de um membro -- funciona mesmo entre duas pessoas de Liderança.")
+@app_commands.describe(
+    membro="Quem vai ter o apelido alterado",
+    nick="Novo apelido (deixe em branco pra remover o apelido customizado e voltar ao nome original)",
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def apelido_command(interaction: discord.Interaction, membro: discord.Member, nick: str = None):
+    # Mesma trava de hierarquia do /promover: editar apelido de outra pessoa
+    # exige que o cargo mais alto de quem edita seja MAIOR que o da pessoa
+    # editada -- não funciona entre dois Liderança, nem pro Dono não ser
+    # necessário. O bot contorna isso porque o cargo dele está acima de todos.
+    try:
+        await membro.edit(nick=nick, reason=f"Apelido alterado por {interaction.user} via /apelido")
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            "Sem permissão pra mudar o apelido dessa pessoa -- confirme que o cargo do bot "
+            "está acima de todos em Configurações do Servidor > Cargos.", ephemeral=True
+        )
+        return
+
+    novo = nick or membro.name
+    await interaction.response.send_message(
+        f"Apelido de {membro.mention} atualizado para **{novo}**. ✅", ephemeral=True
+    )
+
+
 @tree.command(name="resumo", description="Cria/atualiza o resumo fixado no topo deste canal (texto e/ou imagem).")
 @app_commands.describe(
     texto="Novo texto do resumo (deixe em branco pra só trocar a imagem, mantendo o texto atual)",
