@@ -491,8 +491,14 @@ def _formata_taxa(label: str, bonus: float, nidhogg: float) -> str:
     drop_nidhogg="% de Nidhogg na taxa de DROP",
     penalidade_bonus="% de Bônus na Penalidade de Morte",
     penalidade_nidhogg="% de Nidhogg na Penalidade de Morte",
-    avisar="Mandar aviso novo no canal chamando os Participantes? (padrão: sim)",
+    avisar="Mandar aviso novo no canal? (padrão: sim)",
+    mencionar="Quem chamar no aviso (padrão: @everyone)",
 )
+@app_commands.choices(mencionar=[
+    app_commands.Choice(name="@everyone", value="everyone"),
+    app_commands.Choice(name="@here (só quem está online)", value="here"),
+    app_commands.Choice(name="Cargo Participantes", value="participantes"),
+])
 @app_commands.checks.has_permissions(manage_messages=True)
 async def xprate_command(
     interaction: discord.Interaction,
@@ -503,6 +509,7 @@ async def xprate_command(
     penalidade_bonus: float = None,
     penalidade_nidhogg: float = None,
     avisar: bool = True,
+    mencionar: app_commands.Choice[str] = None,
 ):
     channel = discord.utils.get(interaction.guild.text_channels, name="status-xp-drop-penalidade")
     if channel is None:
@@ -553,8 +560,12 @@ async def xprate_command(
             pass
 
     if avisar:
-        role = discord.utils.get(interaction.guild.roles, name="Participantes")
-        mention = role.mention if role else ""
+        alvo = mencionar.value if mencionar else "everyone"
+        if alvo == "participantes":
+            role = discord.utils.get(interaction.guild.roles, name="Participantes")
+            mention = role.mention if role else ""
+        else:
+            mention = f"@{alvo}"  # "@everyone" ou "@here"
         exp_total = 100.0 + state["exp_bonus"] + state["exp_nidhogg"]
         drop_total = 100.0 + state["drop_bonus"] + state["drop_nidhogg"]
         pen_total = 100.0 + state["penalidade_bonus"] + state["penalidade_nidhogg"]
@@ -562,7 +573,7 @@ async def xprate_command(
             f"{mention} 📊 As taxas do servidor mudaram! "
             f"EXP {exp_total:.1f}% · DROP {drop_total:.1f}% · Penalidade {pen_total:.1f}%"
         )
-        await channel.send(aviso, allowed_mentions=discord.AllowedMentions(roles=True))
+        await channel.send(aviso, allowed_mentions=discord.AllowedMentions(everyone=True, roles=True))
 
     await interaction.response.send_message("Taxas atualizadas. ✅", ephemeral=True)
 

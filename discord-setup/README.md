@@ -166,9 +166,10 @@ Todos os campos são opcionais e independentes:
 - `exp_bonus`, `exp_nidhogg` — taxa de EXP
 - `drop_bonus`, `drop_nidhogg` — taxa de DROP
 - `penalidade_bonus`, `penalidade_nidhogg` — Penalidade de Morte
-- `avisar` — manda um aviso novo chamando Participantes (padrão: sim;
-  rode com `avisar: False` pra só atualizar a mensagem fixada, em
-  silêncio)
+- `avisar` — manda um aviso novo no canal (padrão: sim; rode com
+  `avisar: False` pra só atualizar a mensagem fixada, em silêncio)
+- `mencionar` — quem chamar no aviso: `@everyone` (padrão), `@here` (só
+  quem está online) ou o cargo Participantes
 
 O "Normal" de cada taxa é sempre 100% (igual ao jogo) e o total é
 calculado automaticamente (Normal + Bônus + Nidhogg). Disponível pra
