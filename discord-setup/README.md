@@ -147,24 +147,33 @@ canal que você quer mudar:
 Depois que o `/resumo` for usado num canal, o `config.yaml` deixa de ter
 efeito sobre aquela mensagem — ele só serve como rascunho inicial.
 
-### Avisando o bônus de XP/drop vigente
+### Avisando as taxas de EXP/Drop/Penalidade vigentes
 
-O bônus de XP do Ragnarok Online LATAM só aparece dentro do próprio jogo
-(não existe site/API pra consultar de fora), então não dá pra automatizar
--- é preciso alguém ver o aviso no jogo e replicar no Discord. O comando
-`/xprate` deixa isso rápido, sem precisar editar nada:
+Essas taxas só aparecem dentro do próprio jogo (tela "Taxa de E X P /
+Taxa de DROP / Pen. de Morte", cada uma como Normal + Bônus + Nidhogg) --
+não existe site/API pra consultar de fora, então não dá pra automatizar.
+É preciso alguém ver o valor no jogo e replicar no Discord. O comando
+`/xprate` reproduz esse mesmo formato e guarda os valores atuais na
+própria mensagem fixada -- então só precisa informar o que **mudou**,
+o resto continua com o último valor registrado:
 
 ```
-/xprate bonus: +100% ate: 22h
+/xprate exp_nidhogg: 100
 ```
 
-- Disponível pra quem tem permissão de **Moderação+** (ou Liderança).
-- Atualiza a mensagem fixada em `#status-xp-drop-penalidade` (edita a
-  mesma mensagem sempre, não fica acumulando).
-- Manda também um aviso novo no canal, chamando o cargo Participantes
-  (pode desligar isso rodando com `avisar: False`).
-- `ate` é opcional -- se você souber até quando vale o bônus, informe;
-  senão deixe em branco.
+Todos os campos são opcionais e independentes:
+
+- `exp_bonus`, `exp_nidhogg` — taxa de EXP
+- `drop_bonus`, `drop_nidhogg` — taxa de DROP
+- `penalidade_bonus`, `penalidade_nidhogg` — Penalidade de Morte
+- `avisar` — manda um aviso novo chamando Participantes (padrão: sim;
+  rode com `avisar: False` pra só atualizar a mensagem fixada, em
+  silêncio)
+
+O "Normal" de cada taxa é sempre 100% (igual ao jogo) e o total é
+calculado automaticamente (Normal + Bônus + Nidhogg). Disponível pra
+quem tem permissão de **Moderação+** (ou Liderança). Atualiza sempre a
+mesma mensagem fixada em `#status-xp-drop-penalidade`, sem acumular.
 
 ## Como funciona o fluxo de entrada
 

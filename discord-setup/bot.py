@@ -16,6 +16,7 @@ Configuração: variáveis de ambiente em .env (veja .env.example) + config.yaml
 """
 
 import asyncio
+import json
 import logging
 import os
 
@@ -469,14 +470,40 @@ async def resumo_command(interaction: discord.Interaction, texto: str = None, im
     await interaction.response.send_message("Resumo atualizado. ✅", ephemeral=True)
 
 
-@tree.command(name="xprate", description="Atualiza o bônus de XP/drop vigente no canal de status.")
+XPRATE_MARKER = "discord-setup:xprate"
+XPRATE_CAMPOS = (
+    "exp_bonus", "exp_nidhogg",
+    "drop_bonus", "drop_nidhogg",
+    "penalidade_bonus", "penalidade_nidhogg",
+)
+
+
+def _formata_taxa(label: str, bonus: float, nidhogg: float) -> str:
+    total = 100.0 + bonus + nidhogg
+    return f"**Taxa de {label}:** {total:.1f}% ( Normal 100.0% + Bônus {bonus:.1f}% + Nidhogg {nidhogg:.1f}% )"
+
+
+@tree.command(name="xprate", description="Atualiza as taxas de EXP/Drop/Penalidade vigentes (igual à tela do jogo).")
 @app_commands.describe(
-    bonus="Bônus mostrado no jogo agora (ex: +100%)",
-    ate="Até quando vale, se souber (ex: 22h, domingo 23h59) -- opcional",
+    exp_bonus="% de Bônus na taxa de EXP -- deixe em branco pra manter o valor atual",
+    exp_nidhogg="% de Nidhogg na taxa de EXP",
+    drop_bonus="% de Bônus na taxa de DROP",
+    drop_nidhogg="% de Nidhogg na taxa de DROP",
+    penalidade_bonus="% de Bônus na Penalidade de Morte",
+    penalidade_nidhogg="% de Nidhogg na Penalidade de Morte",
     avisar="Mandar aviso novo no canal chamando os Participantes? (padrão: sim)",
 )
 @app_commands.checks.has_permissions(manage_messages=True)
-async def xprate_command(interaction: discord.Interaction, bonus: str, ate: str = None, avisar: bool = True):
+async def xprate_command(
+    interaction: discord.Interaction,
+    exp_bonus: float = None,
+    exp_nidhogg: float = None,
+    drop_bonus: float = None,
+    drop_nidhogg: float = None,
+    penalidade_bonus: float = None,
+    penalidade_nidhogg: float = None,
+    avisar: bool = True,
+):
     channel = discord.utils.get(interaction.guild.text_channels, name="status-xp-drop-penalidade")
     if channel is None:
         await interaction.response.send_message(
@@ -484,20 +511,38 @@ async def xprate_command(interaction: discord.Interaction, bonus: str, ate: str 
         )
         return
 
-    marker = "discord-setup:xprate"
-    texto = f"📈 **Bônus de XP/Drop atual: {bonus}**"
-    if ate:
-        texto += f"\nVale até: {ate}"
-    texto += f"\n\n*Atualizado por {interaction.user.mention} <t:{int(discord.utils.utcnow().timestamp())}:R>*"
-
+    state = {campo: 0.0 for campo in XPRATE_CAMPOS}
     target = None
     async for msg in channel.history(limit=20, oldest_first=True):
-        if msg.author.id == client.user.id and msg.embeds and msg.embeds[0].footer.text == marker:
+        footer = (msg.embeds[0].footer.text or "") if msg.embeds else ""
+        if msg.author.id == client.user.id and footer.startswith(XPRATE_MARKER):
             target = msg
+            try:
+                salvo = json.loads(footer.split("|", 1)[1])
+                state.update({k: v for k, v in salvo.items() if k in state})
+            except (IndexError, ValueError, json.JSONDecodeError):
+                pass
             break
 
-    embed = discord.Embed(description=texto, color=discord.Color.gold())
-    embed.set_footer(text=marker)
+    novos_valores = {
+        "exp_bonus": exp_bonus, "exp_nidhogg": exp_nidhogg,
+        "drop_bonus": drop_bonus, "drop_nidhogg": drop_nidhogg,
+        "penalidade_bonus": penalidade_bonus, "penalidade_nidhogg": penalidade_nidhogg,
+    }
+    for campo, valor in novos_valores.items():
+        if valor is not None:
+            state[campo] = valor
+
+    texto = (
+        f"{_formata_taxa('E X P', state['exp_bonus'], state['exp_nidhogg'])}\n"
+        f"{_formata_taxa('DROP', state['drop_bonus'], state['drop_nidhogg'])}\n"
+        f"{_formata_taxa('Penalidade de Morte', state['penalidade_bonus'], state['penalidade_nidhogg'])}\n\n"
+        f"*Atualizado por {interaction.user.mention} <t:{int(discord.utils.utcnow().timestamp())}:R>*"
+    )
+
+    embed = discord.Embed(title="📊 Taxas atuais do servidor", description=texto, color=discord.Color.gold())
+    embed.set_footer(text=f"{XPRATE_MARKER}|{json.dumps(state)}")
+
     if target:
         await target.edit(embed=embed)
     else:
@@ -510,10 +555,16 @@ async def xprate_command(interaction: discord.Interaction, bonus: str, ate: str 
     if avisar:
         role = discord.utils.get(interaction.guild.roles, name="Participantes")
         mention = role.mention if role else ""
-        aviso = f"{mention} 📈 O bônus de XP/Drop mudou: **{bonus}**" + (f" (até {ate})" if ate else "")
+        exp_total = 100.0 + state["exp_bonus"] + state["exp_nidhogg"]
+        drop_total = 100.0 + state["drop_bonus"] + state["drop_nidhogg"]
+        pen_total = 100.0 + state["penalidade_bonus"] + state["penalidade_nidhogg"]
+        aviso = (
+            f"{mention} 📊 As taxas do servidor mudaram! "
+            f"EXP {exp_total:.1f}% · DROP {drop_total:.1f}% · Penalidade {pen_total:.1f}%"
+        )
         await channel.send(aviso, allowed_mentions=discord.AllowedMentions(roles=True))
 
-    await interaction.response.send_message("Status de XP atualizado. ✅", ephemeral=True)
+    await interaction.response.send_message("Taxas atualizadas. ✅", ephemeral=True)
 
 
 if __name__ == "__main__":
