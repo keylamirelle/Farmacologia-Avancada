@@ -423,6 +423,50 @@ async def sync_command(interaction: discord.Interaction):
     await interaction.followup.send("Configuração sincronizada com sucesso. ✅", ephemeral=True)
 
 
+CARGOS_HIERARQUICOS = ["Participantes", "Membros", "Moderação", "Liderança"]
+
+
+@tree.command(name="promover", description="Atribui um cargo (e os cargos abaixo dele) a um membro.")
+@app_commands.describe(
+    membro="Quem vai receber o cargo",
+    cargo="Cargo mais alto que a pessoa vai ter -- os cargos abaixo dele são dados junto (são cumulativos)",
+)
+@app_commands.choices(cargo=[app_commands.Choice(name=c, value=c) for c in CARGOS_HIERARQUICOS])
+@app_commands.checks.has_permissions(administrator=True)
+async def promover_command(interaction: discord.Interaction, membro: discord.Member, cargo: app_commands.Choice[str]):
+    # O Discord não deixa NINGUÉM (nem Administrator) atribuir manualmente um
+    # cargo igual ou acima do próprio cargo mais alto -- só o Dono real da
+    # conta escapa disso. Como o cargo do bot está acima de todos, ele
+    # consegue atribuir por quem chamou o comando (que precisa já ser
+    # Liderança/Administrator pra poder chamar).
+    idx = CARGOS_HIERARQUICOS.index(cargo.value)
+    nomes = CARGOS_HIERARQUICOS[: idx + 1]
+
+    roles, faltando = [], []
+    for nome in nomes:
+        role = discord.utils.get(interaction.guild.roles, name=nome)
+        (roles if role else faltando).append(role or nome)
+
+    if faltando:
+        await interaction.response.send_message(
+            f"Não encontrei o(s) cargo(s) {', '.join(faltando)} -- rode /sync primeiro.", ephemeral=True
+        )
+        return
+
+    try:
+        await membro.add_roles(*roles, reason=f"Promovido por {interaction.user} via /promover")
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            "Sem permissão pra atribuir algum desses cargos -- confirme que o cargo do bot "
+            "está acima de todos em Configurações do Servidor > Cargos.", ephemeral=True
+        )
+        return
+
+    await interaction.response.send_message(
+        f"{membro.mention} agora tem: {', '.join(nomes)}. ✅", ephemeral=True
+    )
+
+
 @tree.command(name="resumo", description="Cria/atualiza o resumo fixado no topo deste canal (texto e/ou imagem).")
 @app_commands.describe(
     texto="Novo texto do resumo (deixe em branco pra só trocar a imagem, mantendo o texto atual)",

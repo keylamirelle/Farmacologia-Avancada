@@ -176,6 +176,31 @@ calculado automaticamente (Normal + Bônus + Nidhogg). Disponível pra
 quem tem permissão de **Moderação+** (ou Liderança). Atualiza sempre a
 mesma mensagem fixada em `#status-xp-drop-penalidade`, sem acumular.
 
+### Promovendo alguém (inclusive a Liderança)
+
+O Discord tem uma trava rígida: **ninguém** consegue atribuir manualmente,
+pela interface, um cargo que esteja na mesma posição ou acima do próprio
+cargo mais alto -- nem quem tem Administrator. Só o Dono real da conta do
+servidor escapa disso. Ou seja: quem só tem o cargo Liderança não
+consegue dar Liderança pra outra pessoa arrastando na tela de membros.
+
+Use `/promover` em vez disso -- o bot faz a atribuição por você, porque o
+cargo dele está posicionado acima de todos:
+
+```
+/promover membro: @Fulano cargo: Liderança
+```
+
+- Precisa ter **Administrator** (ou seja, já ser Liderança) pra chamar.
+- Dá os cargos abaixo junto, por serem cumulativos (ex: escolher
+  "Moderação" também dá Participantes e Membros).
+- Não remove cargos antigos automaticamente. Pra **remover** Moderação,
+  Membros ou Participantes de alguém, a interface normal do Discord
+  funciona (esses cargos estão abaixo de Liderança). Mas remover o
+  cargo **Liderança** de outra pessoa esbarra na mesma trava de
+  hierarquia -- se isso for necessário no futuro, me avisa que eu
+  adiciono um `/rebaixar` no mesmo esquema do `/promover`.
+
 ## Como funciona o fluxo de entrada
 
 1. Pessoa entra no servidor → só enxerga a categoria **ENTRADA**
