@@ -469,6 +469,53 @@ async def resumo_command(interaction: discord.Interaction, texto: str = None, im
     await interaction.response.send_message("Resumo atualizado. ✅", ephemeral=True)
 
 
+@tree.command(name="xprate", description="Atualiza o bônus de XP/drop vigente no canal de status.")
+@app_commands.describe(
+    bonus="Bônus mostrado no jogo agora (ex: +100%)",
+    ate="Até quando vale, se souber (ex: 22h, domingo 23h59) -- opcional",
+    avisar="Mandar aviso novo no canal chamando os Participantes? (padrão: sim)",
+)
+@app_commands.checks.has_permissions(manage_messages=True)
+async def xprate_command(interaction: discord.Interaction, bonus: str, ate: str = None, avisar: bool = True):
+    channel = discord.utils.get(interaction.guild.text_channels, name="status-xp-drop-penalidade")
+    if channel is None:
+        await interaction.response.send_message(
+            "Canal 'status-xp-drop-penalidade' não encontrado -- rode /sync primeiro.", ephemeral=True
+        )
+        return
+
+    marker = "discord-setup:xprate"
+    texto = f"📈 **Bônus de XP/Drop atual: {bonus}**"
+    if ate:
+        texto += f"\nVale até: {ate}"
+    texto += f"\n\n*Atualizado por {interaction.user.mention} <t:{int(discord.utils.utcnow().timestamp())}:R>*"
+
+    target = None
+    async for msg in channel.history(limit=20, oldest_first=True):
+        if msg.author.id == client.user.id and msg.embeds and msg.embeds[0].footer.text == marker:
+            target = msg
+            break
+
+    embed = discord.Embed(description=texto, color=discord.Color.gold())
+    embed.set_footer(text=marker)
+    if target:
+        await target.edit(embed=embed)
+    else:
+        target = await channel.send(embed=embed)
+        try:
+            await target.pin(reason="discord-setup: status de xp")
+        except discord.Forbidden:
+            pass
+
+    if avisar:
+        role = discord.utils.get(interaction.guild.roles, name="Participantes")
+        mention = role.mention if role else ""
+        aviso = f"{mention} 📈 O bônus de XP/Drop mudou: **{bonus}**" + (f" (até {ate})" if ate else "")
+        await channel.send(aviso, allowed_mentions=discord.AllowedMentions(roles=True))
+
+    await interaction.response.send_message("Status de XP atualizado. ✅", ephemeral=True)
+
+
 if __name__ == "__main__":
     token = os.getenv("DISCORD_BOT_TOKEN")
     if not token:

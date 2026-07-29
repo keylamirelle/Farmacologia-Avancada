@@ -22,10 +22,16 @@ cargos, canais (texto e voz), regras e o fluxo de boas-vindas de quem entra.
 4. Em **OAuth2 → URL Generator**: marque o escopo `bot`, e nas permissões
    marque pelo menos `Manage Roles`, `Manage Channels`, `Manage Nicknames`,
    `Kick Members`, `Moderate Members`, `Send Messages`, `Embed Links`,
-   `View Channels`. Abra o link gerado e adicione o bot ao seu servidor.
+   `View Channels`, `Mention @everyone, @here and All Roles` (necessário
+   pro `/xprate` conseguir avisar o cargo Participantes). Abra o link
+   gerado e adicione o bot ao seu servidor.
 5. **Importante**: depois de adicionar, vá em *Configurações do Servidor →
    Cargos* e arraste o cargo do bot para **acima** do cargo "Liderança".
    Sem isso o bot não consegue gerenciar os cargos abaixo dele.
+   - Se o bot já estava no servidor antes dessa permissão de menção
+     existir, não precisa reconvidar: vá em *Configurações do Servidor →
+     Cargos → (cargo do bot)* e ative manualmente **"Mencionar
+     @everyone, @here e Todos os Cargos"**.
 
 ## 2. Configurar o projeto
 
@@ -140,6 +146,25 @@ canal que você quer mudar:
 
 Depois que o `/resumo` for usado num canal, o `config.yaml` deixa de ter
 efeito sobre aquela mensagem — ele só serve como rascunho inicial.
+
+### Avisando o bônus de XP/drop vigente
+
+O bônus de XP do Ragnarok Online LATAM só aparece dentro do próprio jogo
+(não existe site/API pra consultar de fora), então não dá pra automatizar
+-- é preciso alguém ver o aviso no jogo e replicar no Discord. O comando
+`/xprate` deixa isso rápido, sem precisar editar nada:
+
+```
+/xprate bonus: +100% ate: 22h
+```
+
+- Disponível pra quem tem permissão de **Moderação+** (ou Liderança).
+- Atualiza a mensagem fixada em `#status-xp-drop-penalidade` (edita a
+  mesma mensagem sempre, não fica acumulando).
+- Manda também um aviso novo no canal, chamando o cargo Participantes
+  (pode desligar isso rodando com `avisar: False`).
+- `ate` é opcional -- se você souber até quando vale o bônus, informe;
+  senão deixe em branco.
 
 ## Como funciona o fluxo de entrada
 
