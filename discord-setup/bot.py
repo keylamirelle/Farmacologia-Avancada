@@ -19,11 +19,16 @@ import asyncio
 import json
 import logging
 import os
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import discord
 import yaml
 from discord import app_commands
+from discord.ext import tasks
 from dotenv import load_dotenv
+
+FUSO_HORARIO = ZoneInfo("America/Sao_Paulo")
 
 load_dotenv()
 
@@ -395,6 +400,8 @@ class SetupBot(discord.Client):
         self.add_view(RulesView(self, self.config["onboarding"]))
         self.add_view(InstanciaView())
         await self.ensure_rules_message(guild)
+        if not fechar_instancias_vencidas.is_running():
+            fechar_instancias_vencidas.start()
         log.info("Pronto. Cargos ativos: %s", ", ".join(roles_by_name))
 
 
@@ -420,6 +427,58 @@ class RulesView(discord.ui.View):
         await interaction.response.send_message(self.onboarding_cfg["msg_apos_confirmar"], ephemeral=True)
 
 
+INSTANCIA_MARKER = "discord-setup:instancia"
+INSTANCIA_PRAZO_HORAS = 2  # respostas fecham sozinhas N horas depois do horário marcado
+
+
+def _instancia_prazo(embed: discord.Embed) -> int | None:
+    footer = (embed.footer.text or "") if embed.footer else ""
+    if not footer.startswith(INSTANCIA_MARKER):
+        return None
+    try:
+        return json.loads(footer.split("|", 1)[1]).get("prazo")
+    except (IndexError, ValueError, json.JSONDecodeError):
+        return None
+
+
+class InstanciaObsModal(discord.ui.Modal, title="Confirmar resposta"):
+    observacao = discord.ui.TextInput(
+        label="Observação (opcional)",
+        style=discord.TextStyle.paragraph,
+        required=False,
+        max_length=200,
+    )
+
+    def __init__(self, mensagem: discord.Message, indice_alvo: int):
+        super().__init__()
+        self.mensagem = mensagem
+        self.indice_alvo = indice_alvo
+
+    async def on_submit(self, interaction: discord.Interaction):
+        embed = self.mensagem.embeds[0]
+        mencao = interaction.user.mention
+        obs = self.observacao.value.strip()
+        entrada = f"{mencao} — {obs}" if obs else mencao
+
+        novos_campos = []
+        for i, field in enumerate(embed.fields):
+            linhas = [] if field.value == "-" else field.value.split("\n")
+            # troca de resposta descarta a anterior -- tira essa pessoa de
+            # qualquer lista antes de adicionar na nova escolhida.
+            linhas = [l for l in linhas if not l.startswith(mencao)]
+            if i == self.indice_alvo:
+                linhas.append(entrada)
+            label = field.name.split(" (")[0]
+            novos_campos.append((f"{label} ({len(linhas)})", "\n".join(linhas) if linhas else "-"))
+
+        embed.clear_fields()
+        for nome, valor in novos_campos:
+            embed.add_field(name=nome, value=valor, inline=True)
+
+        await self.mensagem.edit(embed=embed)
+        await interaction.response.send_message("Resposta registrada. ✅", ephemeral=True)
+
+
 class InstanciaView(discord.ui.View):
     """Botões de confirmação de presença -- persistente, um único view cobre
     todas as mensagens de /instancia (o estado fica salvo nos campos do
@@ -428,42 +487,64 @@ class InstanciaView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    async def _registrar(self, interaction: discord.Interaction, indice_alvo: int):
-        embed = interaction.message.embeds[0]
-        mencao = interaction.user.mention
-
-        novos_campos = []
-        for i, field in enumerate(embed.fields):
-            nomes = [] if field.value == "-" else field.value.split("\n")
-            nomes = [n for n in nomes if n != mencao]
-            if i == indice_alvo:
-                nomes.append(mencao)
-            label = field.name.split(" (")[0]
-            novos_campos.append((f"{label} ({len(nomes)})", "\n".join(nomes) if nomes else "-"))
-
-        embed.clear_fields()
-        for nome, valor in novos_campos:
-            embed.add_field(name=nome, value=valor, inline=True)
-        await interaction.response.edit_message(embed=embed)
+    async def _abrir_modal(self, interaction: discord.Interaction, indice_alvo: int):
+        embed = interaction.message.embeds[0] if interaction.message.embeds else None
+        prazo = _instancia_prazo(embed) if embed else None
+        if prazo and discord.utils.utcnow().timestamp() >= prazo:
+            await interaction.response.send_message(
+                "As respostas pra essa instância já foram encerradas.", ephemeral=True
+            )
+            return
+        await interaction.response.send_modal(InstanciaObsModal(interaction.message, indice_alvo))
 
     @discord.ui.button(label="Vou", emoji="✅", style=discord.ButtonStyle.success,
                         custom_id="discord-setup:instancia_vou")
     async def vou(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._registrar(interaction, 0)
+        await self._abrir_modal(interaction, 0)
 
     @discord.ui.button(label="Não vou", emoji="❌", style=discord.ButtonStyle.danger,
                         custom_id="discord-setup:instancia_nao")
     async def nao_vou(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._registrar(interaction, 1)
+        await self._abrir_modal(interaction, 1)
 
     @discord.ui.button(label="Talvez", emoji="🤔", style=discord.ButtonStyle.secondary,
                         custom_id="discord-setup:instancia_talvez")
     async def talvez(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._registrar(interaction, 2)
+        await self._abrir_modal(interaction, 2)
 
 
 client = SetupBot()
 tree = client.tree
+
+
+@tasks.loop(minutes=5)
+async def fechar_instancias_vencidas():
+    guild = client.resolve_guild()
+    if guild is None:
+        return
+    channel = discord.utils.get(guild.text_channels, name="anuncio-de-instancias")
+    if channel is None:
+        return
+
+    agora = discord.utils.utcnow().timestamp()
+    async for msg in channel.history(limit=50):
+        if msg.author.id != client.user.id or not msg.embeds or not msg.components:
+            continue  # não é do bot, ou já foi fechada antes (sem botões)
+        prazo = _instancia_prazo(msg.embeds[0])
+        if prazo is None or agora < prazo:
+            continue
+        embed = msg.embeds[0]
+        if not embed.title.startswith("🔒"):
+            embed.title = f"🔒 {embed.title}"
+        try:
+            await msg.edit(embed=embed, view=None)
+        except discord.Forbidden:
+            log.warning("Sem permissão pra encerrar respostas de instância em #%s.", channel.name)
+
+
+@fechar_instancias_vencidas.before_loop
+async def _antes_de_fechar_instancias_vencidas():
+    await client.wait_until_ready()
 
 
 @tree.command(name="sync", description="Reaplica config.yaml no servidor (cargos, canais e regras).")
@@ -721,10 +802,21 @@ def _conteudo_mencao(mencionar: app_commands.Choice[str] | None) -> str | None:
     return None if alvo == "nenhuma" else f"@{alvo}"
 
 
+def _parse_data_hora(data: str, hora: str) -> datetime:
+    partes_data = data.strip().split("/")
+    if len(partes_data) not in (2, 3):
+        raise ValueError("data")
+    dia, mes = int(partes_data[0]), int(partes_data[1])
+    ano = int(partes_data[2]) if len(partes_data) == 3 else datetime.now(FUSO_HORARIO).year
+    h, m = (hora.strip().split(":") + ["0"])[:2]
+    return datetime(ano, mes, dia, int(h), int(m), tzinfo=FUSO_HORARIO)
+
+
 @tree.command(name="instancia", description="Anuncia uma instância/atividade e abre confirmação de presença.")
 @app_commands.describe(
     nome="Nome da instância/atividade",
-    quando="Quando vai rolar (ex: hoje 20h, sábado 19h)",
+    data="Data (DD/MM ou DD/MM/AAAA -- assume o ano atual se omitido)",
+    hora="Horário, 24h (ex: 20:00)",
     vagas="Número de vagas, se houver limite -- opcional",
     obs="Observações extras -- opcional",
     mencionar="Quem chamar no aviso (padrão: @everyone)",
@@ -734,7 +826,8 @@ def _conteudo_mencao(mencionar: app_commands.Choice[str] | None) -> str | None:
 async def instancia_command(
     interaction: discord.Interaction,
     nome: str,
-    quando: str,
+    data: str,
+    hora: str,
     vagas: int = None,
     obs: str = None,
     mencionar: app_commands.Choice[str] = None,
@@ -746,17 +839,32 @@ async def instancia_command(
         )
         return
 
-    descricao = f"**Quando:** {quando}"
+    try:
+        agendado = _parse_data_hora(data, hora)
+    except (ValueError, IndexError):
+        await interaction.response.send_message(
+            "Não entendi a data/hora. Use `data: DD/MM` (ou `DD/MM/AAAA`) e `hora: HH:MM`.", ephemeral=True
+        )
+        return
+
+    unix_agendado = int(agendado.timestamp())
+    unix_prazo = int((agendado + timedelta(hours=INSTANCIA_PRAZO_HORAS)).timestamp())
+
+    descricao = f"**Quando:** <t:{unix_agendado}:F> (<t:{unix_agendado}:R>)"
     if vagas is not None:
         descricao += f"\n**Vagas:** {vagas}"
     if obs:
         descricao += f"\n{obs}"
-    descricao += f"\n\n*Organizado por {interaction.user.mention}*"
+    descricao += (
+        f"\n\n*Organizado por {interaction.user.mention} — respostas encerram "
+        f"{INSTANCIA_PRAZO_HORAS}h após o horário marcado*"
+    )
 
     embed = discord.Embed(title=f"🗡️ Instância: {nome}", description=descricao, color=discord.Color.blurple())
     embed.add_field(name="✅ Vou (0)", value="-", inline=True)
     embed.add_field(name="❌ Não vou (0)", value="-", inline=True)
     embed.add_field(name="🤔 Talvez (0)", value="-", inline=True)
+    embed.set_footer(text=f"{INSTANCIA_MARKER}|{json.dumps({'prazo': unix_prazo})}")
 
     await channel.send(
         content=_conteudo_mencao(mencionar),

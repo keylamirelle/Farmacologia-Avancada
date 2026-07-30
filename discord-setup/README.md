@@ -186,15 +186,27 @@ mesma mensagem fixada em `#status-xp-drop-penalidade`, sem acumular.
 ### Anunciando uma instância com confirmação de presença
 
 ```
-/instancia nome: OGH quando: hoje 20h vagas: 12
+/instancia nome: OGH data: 31/07 hora: 20:00 vagas: 12
 ```
 
 Posta um aviso novo em `#anuncio-de-instancias` com três botões --
-**✅ Vou**, **❌ Não vou**, **🤔 Talvez** -- que qualquer pessoa pode
-clicar; o bot atualiza a lista de nomes em cada categoria na hora,
-direto na mensagem (sem precisar ficar reagindo com emoji). `vagas` e
-`obs` são opcionais, e `mencionar` funciona igual ao `/xprate`
-(`@everyone` por padrão). Disponível pra **Moderação+**.
+**✅ Vou**, **❌ Não vou**, **🤔 Talvez**. Ao clicar em qualquer um deles,
+abre um formulário pra adicionar uma observação opcional (ex: "chego
+15min atrasado"); o bot atualiza a lista de nomes (com a observação,
+se tiver) em cada categoria direto na mensagem. Clicar em outro botão
+depois **substitui** a resposta anterior -- só a mais recente conta.
+
+- `data` aceita `DD/MM` (assume o ano atual) ou `DD/MM/AAAA`; `hora` é
+  24h (`HH:MM`). O horário é mostrado no fuso de Brasília e o Discord
+  já adapta pra cada pessoa ver na hora local dela.
+- **As respostas fecham sozinhas 2h depois do horário marcado** -- os
+  botões somem da mensagem (fica só o registro de quem respondeu o
+  quê) e o título ganha um 🔒. Isso é conferido tanto no clique do
+  botão quanto por uma checagem automática a cada 5 minutos, então
+  funciona mesmo que o bot reinicie no meio do caminho.
+- `vagas` e `obs` são opcionais, e `mencionar` funciona igual ao
+  `/xprate` (`@everyone` por padrão).
+- Disponível pra **Moderação+**.
 
 ### Cronograma semanal de instâncias
 
