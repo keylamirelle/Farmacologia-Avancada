@@ -393,6 +393,7 @@ class SetupBot(discord.Client):
             return
         roles_by_name = await self.sync_structure(guild)
         self.add_view(RulesView(self, self.config["onboarding"]))
+        self.add_view(InstanciaView())
         await self.ensure_rules_message(guild)
         log.info("Pronto. Cargos ativos: %s", ", ".join(roles_by_name))
 
@@ -417,6 +418,48 @@ class RulesView(discord.ui.View):
             return
         await interaction.user.add_roles(role, reason="Confirmou leitura das regras")
         await interaction.response.send_message(self.onboarding_cfg["msg_apos_confirmar"], ephemeral=True)
+
+
+class InstanciaView(discord.ui.View):
+    """Botões de confirmação de presença -- persistente, um único view cobre
+    todas as mensagens de /instancia (o estado fica salvo nos campos do
+    embed de cada mensagem, não no view em si)."""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    async def _registrar(self, interaction: discord.Interaction, indice_alvo: int):
+        embed = interaction.message.embeds[0]
+        mencao = interaction.user.mention
+
+        novos_campos = []
+        for i, field in enumerate(embed.fields):
+            nomes = [] if field.value == "-" else field.value.split("\n")
+            nomes = [n for n in nomes if n != mencao]
+            if i == indice_alvo:
+                nomes.append(mencao)
+            label = field.name.split(" (")[0]
+            novos_campos.append((f"{label} ({len(nomes)})", "\n".join(nomes) if nomes else "-"))
+
+        embed.clear_fields()
+        for nome, valor in novos_campos:
+            embed.add_field(name=nome, value=valor, inline=True)
+        await interaction.response.edit_message(embed=embed)
+
+    @discord.ui.button(label="Vou", emoji="✅", style=discord.ButtonStyle.success,
+                        custom_id="discord-setup:instancia_vou")
+    async def vou(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._registrar(interaction, 0)
+
+    @discord.ui.button(label="Não vou", emoji="❌", style=discord.ButtonStyle.danger,
+                        custom_id="discord-setup:instancia_nao")
+    async def nao_vou(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._registrar(interaction, 1)
+
+    @discord.ui.button(label="Talvez", emoji="🤔", style=discord.ButtonStyle.secondary,
+                        custom_id="discord-setup:instancia_talvez")
+    async def talvez(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._registrar(interaction, 2)
 
 
 client = SetupBot()
@@ -654,6 +697,180 @@ async def xprate_command(
         await channel.send(aviso, allowed_mentions=discord.AllowedMentions(everyone=True, roles=True))
 
     await interaction.response.send_message("Taxas atualizadas. ✅", ephemeral=True)
+
+
+MENCIONAR_CHOICES = [
+    app_commands.Choice(name="@everyone", value="everyone"),
+    app_commands.Choice(name="@here (só quem está online)", value="here"),
+    app_commands.Choice(name="Nenhuma menção", value="nenhuma"),
+]
+
+
+def _conteudo_mencao(mencionar: app_commands.Choice[str] | None) -> str | None:
+    alvo = mencionar.value if mencionar else "everyone"
+    return None if alvo == "nenhuma" else f"@{alvo}"
+
+
+@tree.command(name="instancia", description="Anuncia uma instância/atividade e abre confirmação de presença.")
+@app_commands.describe(
+    nome="Nome da instância/atividade",
+    quando="Quando vai rolar (ex: hoje 20h, sábado 19h)",
+    vagas="Número de vagas, se houver limite -- opcional",
+    obs="Observações extras -- opcional",
+    mencionar="Quem chamar no aviso (padrão: @everyone)",
+)
+@app_commands.choices(mencionar=MENCIONAR_CHOICES)
+@app_commands.checks.has_permissions(manage_messages=True)
+async def instancia_command(
+    interaction: discord.Interaction,
+    nome: str,
+    quando: str,
+    vagas: int = None,
+    obs: str = None,
+    mencionar: app_commands.Choice[str] = None,
+):
+    channel = discord.utils.get(interaction.guild.text_channels, name="anuncio-de-instancias")
+    if channel is None:
+        await interaction.response.send_message(
+            "Canal 'anuncio-de-instancias' não encontrado -- rode /sync primeiro.", ephemeral=True
+        )
+        return
+
+    descricao = f"**Quando:** {quando}"
+    if vagas is not None:
+        descricao += f"\n**Vagas:** {vagas}"
+    if obs:
+        descricao += f"\n{obs}"
+    descricao += f"\n\n*Organizado por {interaction.user.mention}*"
+
+    embed = discord.Embed(title=f"🗡️ Instância: {nome}", description=descricao, color=discord.Color.blurple())
+    embed.add_field(name="✅ Vou (0)", value="-", inline=True)
+    embed.add_field(name="❌ Não vou (0)", value="-", inline=True)
+    embed.add_field(name="🤔 Talvez (0)", value="-", inline=True)
+
+    await channel.send(
+        content=_conteudo_mencao(mencionar),
+        embed=embed,
+        view=InstanciaView(),
+        allowed_mentions=discord.AllowedMentions(everyone=True),
+    )
+    await interaction.response.send_message("Instância anunciada! ✅", ephemeral=True)
+
+
+CRONOGRAMA_DIAS = ["segunda", "terca", "quarta", "quinta", "sexta", "sabado", "domingo"]
+CRONOGRAMA_LABELS = {
+    "segunda": "Segunda", "terca": "Terça", "quarta": "Quarta", "quinta": "Quinta",
+    "sexta": "Sexta", "sabado": "Sábado", "domingo": "Domingo",
+}
+CRONOGRAMA_MARKER = "discord-setup:cronograma"
+
+
+@tree.command(name="cronograma", description="Atualiza o cronograma semanal fixado em #anuncio-de-instancias.")
+@app_commands.describe(
+    segunda="Atividade de segunda-feira (deixe em branco pra manter o valor atual)",
+    terca="Atividade de terça-feira",
+    quarta="Atividade de quarta-feira",
+    quinta="Atividade de quinta-feira",
+    sexta="Atividade de sexta-feira",
+    sabado="Atividade de sábado",
+    domingo="Atividade de domingo",
+    limpar="Limpa o cronograma inteiro, ignorando os outros campos",
+)
+@app_commands.checks.has_permissions(manage_messages=True)
+async def cronograma_command(
+    interaction: discord.Interaction,
+    segunda: str = None,
+    terca: str = None,
+    quarta: str = None,
+    quinta: str = None,
+    sexta: str = None,
+    sabado: str = None,
+    domingo: str = None,
+    limpar: bool = False,
+):
+    channel = discord.utils.get(interaction.guild.text_channels, name="anuncio-de-instancias")
+    if channel is None:
+        await interaction.response.send_message(
+            "Canal 'anuncio-de-instancias' não encontrado -- rode /sync primeiro.", ephemeral=True
+        )
+        return
+
+    state = {dia: "" for dia in CRONOGRAMA_DIAS}
+    target = None
+    async for msg in channel.history(limit=20, oldest_first=True):
+        footer = (msg.embeds[0].footer.text or "") if msg.embeds else ""
+        if msg.author.id == client.user.id and footer.startswith(CRONOGRAMA_MARKER):
+            target = msg
+            try:
+                salvo = json.loads(footer.split("|", 1)[1])
+                state.update({k: v for k, v in salvo.items() if k in state})
+            except (IndexError, ValueError, json.JSONDecodeError):
+                pass
+            break
+
+    if limpar:
+        state = {dia: "" for dia in CRONOGRAMA_DIAS}
+    else:
+        novos = {
+            "segunda": segunda, "terca": terca, "quarta": quarta, "quinta": quinta,
+            "sexta": sexta, "sabado": sabado, "domingo": domingo,
+        }
+        for dia, valor in novos.items():
+            if valor is not None:
+                state[dia] = valor
+
+    texto = "\n".join(
+        f"**{CRONOGRAMA_LABELS[dia]}:** {state[dia] or '—'}" for dia in CRONOGRAMA_DIAS
+    )
+    embed = discord.Embed(title="🗓️ Cronograma da semana", description=texto, color=discord.Color.teal())
+    embed.set_footer(text=f"{CRONOGRAMA_MARKER}|{json.dumps(state)}")
+
+    if target:
+        await target.edit(embed=embed)
+    else:
+        target = await channel.send(embed=embed)
+        try:
+            await target.pin(reason="discord-setup: cronograma semanal")
+        except discord.Forbidden:
+            pass
+
+    await interaction.response.send_message("Cronograma atualizado. ✅", ephemeral=True)
+
+
+@tree.command(name="comunicado", description="Publica um comunicado da guilda.")
+@app_commands.describe(
+    titulo="Título do comunicado",
+    texto="Texto do comunicado",
+    imagem="Imagem opcional",
+    mencionar="Quem chamar no aviso (padrão: @everyone)",
+)
+@app_commands.choices(mencionar=MENCIONAR_CHOICES)
+@app_commands.checks.has_permissions(manage_messages=True)
+async def comunicado_command(
+    interaction: discord.Interaction,
+    titulo: str,
+    texto: str,
+    imagem: discord.Attachment = None,
+    mencionar: app_commands.Choice[str] = None,
+):
+    channel = discord.utils.get(interaction.guild.text_channels, name="comunicados-da-guilda")
+    if channel is None:
+        await interaction.response.send_message(
+            "Canal 'comunicados-da-guilda' não encontrado -- rode /sync primeiro.", ephemeral=True
+        )
+        return
+
+    embed = discord.Embed(title=f"📣 {titulo}", description=texto, color=discord.Color.orange())
+    if imagem:
+        embed.set_image(url=imagem.url)
+    embed.set_footer(text=f"Publicado por {interaction.user.display_name}")
+
+    await channel.send(
+        content=_conteudo_mencao(mencionar),
+        embed=embed,
+        allowed_mentions=discord.AllowedMentions(everyone=True),
+    )
+    await interaction.response.send_message("Comunicado publicado! ✅", ephemeral=True)
 
 
 if __name__ == "__main__":

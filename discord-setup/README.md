@@ -176,6 +176,44 @@ calculado automaticamente (Normal + Bônus + Nidhogg). Disponível pra
 quem tem permissão de **Moderação+** (ou Liderança). Atualiza sempre a
 mesma mensagem fixada em `#status-xp-drop-penalidade`, sem acumular.
 
+### Anunciando uma instância com confirmação de presença
+
+```
+/instancia nome: OGH quando: hoje 20h vagas: 12
+```
+
+Posta um aviso novo em `#anuncio-de-instancias` com três botões --
+**✅ Vou**, **❌ Não vou**, **🤔 Talvez** -- que qualquer pessoa pode
+clicar; o bot atualiza a lista de nomes em cada categoria na hora,
+direto na mensagem (sem precisar ficar reagindo com emoji). `vagas` e
+`obs` são opcionais, e `mencionar` funciona igual ao `/xprate`
+(`@everyone` por padrão). Disponível pra **Moderação+**.
+
+### Cronograma semanal de instâncias
+
+Mensagem fixada em `#anuncio-de-instancias`, no mesmo esquema do
+`/xprate`: cada chamada só precisa informar os dias que mudaram, o
+resto mantém o valor anterior.
+
+```
+/cronograma sabado: War Room 19h domingo: OGH 20h
+```
+
+- Um parâmetro por dia da semana (`segunda` a `domingo`).
+- `limpar: True` apaga o cronograma inteiro (ignora os outros campos).
+- Disponível pra **Moderação+**.
+
+### Comunicados da guilda
+
+```
+/comunicado titulo: Manutenção programada texto: Servidor cai às 4h pra manutenção, volta em ~1h.
+```
+
+Publica uma mensagem nova (não fica editando, fica um histórico) em
+`#comunicados-da-guilda`, com título, texto, imagem opcional e escolha
+de menção (`@everyone`/`@here`/nenhuma, igual ao `/xprate`).
+Disponível pra **Moderação+**.
+
 ### Promovendo alguém (inclusive a Liderança)
 
 O Discord tem uma trava rígida: **ninguém** consegue atribuir manualmente,
