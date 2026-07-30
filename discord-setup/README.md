@@ -137,12 +137,19 @@ canal. Depois disso, editar é feito com o comando `/resumo`, direto no
 canal que você quer mudar:
 
 ```
-/resumo texto: <novo texto> imagem: <opcional, anexe uma imagem>
+/resumo imagem: <opcional, anexe uma imagem>
 ```
 
+Isso abre um **formulário** (modal) com um campo de texto grande pra você
+escrever o resumo — nesse campo sim dá pra quebrar linha normalmente
+(Enter/Shift+Enter funciona, diferente dos campos de comando de barra
+comuns). Se já existir um resumo, o formulário já abre com o texto atual
+preenchido, pronto pra editar.
+
 - Disponível pra quem tem permissão de **Moderação+** (ou Liderança).
-- Rodar sem `texto` só troca a imagem, mantendo o texto atual.
-- Rodar sem `imagem` mantém a imagem atual (se tiver).
+- `imagem` continua sendo escolhida no comando (antes de abrir o
+  formulário) — Discord não permite anexar arquivo dentro de um modal.
+  Rodar sem `imagem` mantém a imagem atual, se tiver.
 
 Depois que o `/resumo` for usado num canal, o `config.yaml` deixa de ter
 efeito sobre aquela mensagem — ele só serve como rascunho inicial.
@@ -206,13 +213,16 @@ resto mantém o valor anterior.
 ### Comunicados da guilda
 
 ```
-/comunicado titulo: Manutenção programada texto: Servidor cai às 4h pra manutenção, volta em ~1h.
+/comunicado imagem: <opcional> mencionar: <opcional>
 ```
 
-Publica uma mensagem nova (não fica editando, fica um histórico) em
-`#comunicados-da-guilda`, com título, texto, imagem opcional e escolha
-de menção (`@everyone`/`@here`/nenhuma, igual ao `/xprate`).
-Disponível pra **Moderação+**.
+Abre um formulário (modal) com campos pra **Título** (uma linha) e
+**Texto** (área grande, com quebra de linha normal). Publica uma
+mensagem nova em `#comunicados-da-guilda` (não fica editando, fica um
+histórico), com imagem opcional e escolha de menção
+(`@everyone`/`@here`/nenhuma, igual ao `/xprate`). A imagem e a escolha
+de menção são pedidas no comando, antes de abrir o formulário (modal
+não aceita anexo de arquivo). Disponível pra **Moderação+**.
 
 ### Promovendo alguém (inclusive a Liderança)
 

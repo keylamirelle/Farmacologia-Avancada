@@ -544,13 +544,43 @@ async def apelido_command(interaction: discord.Interaction, membro: discord.Memb
     )
 
 
-@tree.command(name="resumo", description="Cria/atualiza o resumo fixado no topo deste canal (texto e/ou imagem).")
-@app_commands.describe(
-    texto="Novo texto do resumo (deixe em branco pra só trocar a imagem, mantendo o texto atual)",
-    imagem="Imagem opcional pra ilustrar o resumo",
-)
+class ResumoModal(discord.ui.Modal, title="Resumo do canal"):
+    # style=paragraph é o campo de texto "de verdade" do Discord -- só ele
+    # aceita Enter/Shift+Enter pra quebrar linha. Campo de slash command
+    # normal (texto: ...) é sempre de uma linha só, não tem como mudar isso.
+    texto = discord.ui.TextInput(label="Texto do resumo", style=discord.TextStyle.paragraph, max_length=4000)
+
+    def __init__(self, channel: discord.TextChannel, existing_msg, imagem_url: str | None, marker: str):
+        super().__init__()
+        self.channel = channel
+        self.existing_msg = existing_msg
+        self.imagem_url = imagem_url
+        self.marker = marker
+        if existing_msg:
+            self.texto.default = existing_msg.embeds[0].description or ""
+
+    async def on_submit(self, interaction: discord.Interaction):
+        embed = discord.Embed(description=self.texto.value, color=discord.Color.blurple())
+        embed.set_footer(text=self.marker)
+        if self.imagem_url:
+            embed.set_image(url=self.imagem_url)
+
+        if self.existing_msg:
+            await self.existing_msg.edit(embed=embed)
+        else:
+            msg = await self.channel.send(embed=embed)
+            try:
+                await msg.pin(reason="discord-setup: resumo do canal")
+            except discord.Forbidden:
+                pass
+
+        await interaction.response.send_message("Resumo atualizado. ✅", ephemeral=True)
+
+
+@tree.command(name="resumo", description="Cria/atualiza o resumo fixado no topo deste canal (abre um formulário com quebra de linha).")
+@app_commands.describe(imagem="Imagem opcional pra ilustrar o resumo (deixe em branco pra manter a atual)")
 @app_commands.checks.has_permissions(manage_messages=True)
-async def resumo_command(interaction: discord.Interaction, texto: str = None, imagem: discord.Attachment = None):
+async def resumo_command(interaction: discord.Interaction, imagem: discord.Attachment = None):
     channel = interaction.channel
     if not isinstance(channel, discord.TextChannel):
         await interaction.response.send_message(
@@ -565,30 +595,10 @@ async def resumo_command(interaction: discord.Interaction, texto: str = None, im
             existing_msg = msg
             break
 
-    descricao = texto or (existing_msg.embeds[0].description if existing_msg else None)
-    if not descricao:
-        await interaction.response.send_message(
-            "Preciso de um texto pelo menos na primeira vez -- use `/resumo texto: ...`.", ephemeral=True
-        )
-        return
-
-    embed = discord.Embed(description=descricao, color=discord.Color.blurple())
-    embed.set_footer(text=marker)
-    if imagem:
-        embed.set_image(url=imagem.url)
-    elif existing_msg and existing_msg.embeds[0].image:
-        embed.set_image(url=existing_msg.embeds[0].image.url)
-
-    if existing_msg:
-        await existing_msg.edit(embed=embed)
-    else:
-        existing_msg = await channel.send(embed=embed)
-        try:
-            await existing_msg.pin(reason="discord-setup: resumo do canal")
-        except discord.Forbidden:
-            pass
-
-    await interaction.response.send_message("Resumo atualizado. ✅", ephemeral=True)
+    imagem_url = imagem.url if imagem else (
+        existing_msg.embeds[0].image.url if existing_msg and existing_msg.embeds[0].image else None
+    )
+    await interaction.response.send_modal(ResumoModal(channel, existing_msg, imagem_url, marker))
 
 
 XPRATE_MARKER = "discord-setup:xprate"
@@ -837,10 +847,33 @@ async def cronograma_command(
     await interaction.response.send_message("Cronograma atualizado. ✅", ephemeral=True)
 
 
-@tree.command(name="comunicado", description="Publica um comunicado da guilda.")
+class ComunicadoModal(discord.ui.Modal, title="Novo comunicado"):
+    titulo = discord.ui.TextInput(label="Título", style=discord.TextStyle.short, max_length=256)
+    texto = discord.ui.TextInput(label="Texto", style=discord.TextStyle.paragraph, max_length=4000)
+
+    def __init__(self, channel: discord.TextChannel, imagem_url: str | None, conteudo_mencao: str | None):
+        super().__init__()
+        self.channel = channel
+        self.imagem_url = imagem_url
+        self.conteudo_mencao = conteudo_mencao
+
+    async def on_submit(self, interaction: discord.Interaction):
+        embed = discord.Embed(title=f"📣 {self.titulo.value}", description=self.texto.value,
+                               color=discord.Color.orange())
+        if self.imagem_url:
+            embed.set_image(url=self.imagem_url)
+        embed.set_footer(text=f"Publicado por {interaction.user.display_name}")
+
+        await self.channel.send(
+            content=self.conteudo_mencao,
+            embed=embed,
+            allowed_mentions=discord.AllowedMentions(everyone=True),
+        )
+        await interaction.response.send_message("Comunicado publicado! ✅", ephemeral=True)
+
+
+@tree.command(name="comunicado", description="Publica um comunicado da guilda (abre um formulário com quebra de linha).")
 @app_commands.describe(
-    titulo="Título do comunicado",
-    texto="Texto do comunicado",
     imagem="Imagem opcional",
     mencionar="Quem chamar no aviso (padrão: @everyone)",
 )
@@ -848,8 +881,6 @@ async def cronograma_command(
 @app_commands.checks.has_permissions(manage_messages=True)
 async def comunicado_command(
     interaction: discord.Interaction,
-    titulo: str,
-    texto: str,
     imagem: discord.Attachment = None,
     mencionar: app_commands.Choice[str] = None,
 ):
@@ -860,17 +891,10 @@ async def comunicado_command(
         )
         return
 
-    embed = discord.Embed(title=f"📣 {titulo}", description=texto, color=discord.Color.orange())
-    if imagem:
-        embed.set_image(url=imagem.url)
-    embed.set_footer(text=f"Publicado por {interaction.user.display_name}")
-
-    await channel.send(
-        content=_conteudo_mencao(mencionar),
-        embed=embed,
-        allowed_mentions=discord.AllowedMentions(everyone=True),
+    imagem_url = imagem.url if imagem else None
+    await interaction.response.send_modal(
+        ComunicadoModal(channel, imagem_url, _conteudo_mencao(mencionar))
     )
-    await interaction.response.send_message("Comunicado publicado! ✅", ephemeral=True)
 
 
 if __name__ == "__main__":
