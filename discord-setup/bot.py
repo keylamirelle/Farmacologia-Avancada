@@ -517,7 +517,7 @@ client = SetupBot()
 tree = client.tree
 
 
-@tasks.loop(minutes=5)
+@tasks.loop(minutes=1)  # TESTE TEMPORÁRIO: era minutes=5 -- reverter depois de confirmar.
 async def fechar_instancias_vencidas():
     guild = client.resolve_guild()
     if guild is None:
@@ -848,7 +848,8 @@ async def instancia_command(
         return
 
     unix_agendado = int(agendado.timestamp())
-    unix_prazo = int((agendado + timedelta(hours=INSTANCIA_PRAZO_HORAS)).timestamp())
+    # TESTE TEMPORÁRIO: 2 minutos em vez de INSTANCIA_PRAZO_HORAS -- reverter depois de confirmar.
+    unix_prazo = int((agendado + timedelta(minutes=2)).timestamp())
 
     descricao = f"**Quando:** <t:{unix_agendado}:F> (<t:{unix_agendado}:R>)"
     if vagas is not None:
@@ -857,7 +858,7 @@ async def instancia_command(
         descricao += f"\n{obs}"
     descricao += (
         f"\n\n*Organizado por {interaction.user.mention} — respostas encerram "
-        f"{INSTANCIA_PRAZO_HORAS}h após o horário marcado*"
+        f"2min após o horário marcado (TESTE)*"
     )
 
     embed = discord.Embed(title=f"🗡️ Instância: {nome}", description=descricao, color=discord.Color.blurple())
