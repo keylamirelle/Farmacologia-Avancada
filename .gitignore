@@ -5,6 +5,8 @@ web-build/
 .env
 .env.local
 .venv/
+__pycache__/
+*.pyc
 *.log
 npm-debug.*
 yarn-debug.*
