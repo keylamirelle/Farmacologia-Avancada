@@ -199,7 +199,7 @@ depois **substitui** a resposta anterior -- só a mais recente conta.
 - `data` aceita `DD/MM` (assume o ano atual) ou `DD/MM/AAAA`; `hora` é
   24h (`HH:MM`). O horário é mostrado no fuso de Brasília e o Discord
   já adapta pra cada pessoa ver na hora local dela.
-- **As respostas fecham sozinhas 2h depois do horário marcado** -- os
+- **As respostas fecham sozinhas 30 minutos depois do horário marcado** -- os
   botões somem da mensagem (fica só o registro de quem respondeu o
   quê) e o título ganha um 🔒. Isso é conferido tanto no clique do
   botão quanto por uma checagem automática a cada 5 minutos, então

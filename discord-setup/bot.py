@@ -428,7 +428,7 @@ class RulesView(discord.ui.View):
 
 
 INSTANCIA_MARKER = "discord-setup:instancia"
-INSTANCIA_PRAZO_HORAS = 2  # respostas fecham sozinhas N horas depois do horário marcado
+INSTANCIA_PRAZO_MINUTOS = 30  # respostas fecham sozinhas N minutos depois do horário marcado
 
 
 def _instancia_prazo(embed: discord.Embed) -> int | None:
@@ -517,7 +517,7 @@ client = SetupBot()
 tree = client.tree
 
 
-@tasks.loop(minutes=1)  # TESTE TEMPORÁRIO: era minutes=5 -- reverter depois de confirmar.
+@tasks.loop(minutes=5)
 async def fechar_instancias_vencidas():
     guild = client.resolve_guild()
     if guild is None:
@@ -848,8 +848,7 @@ async def instancia_command(
         return
 
     unix_agendado = int(agendado.timestamp())
-    # TESTE TEMPORÁRIO: 2 minutos em vez de INSTANCIA_PRAZO_HORAS -- reverter depois de confirmar.
-    unix_prazo = int((agendado + timedelta(minutes=2)).timestamp())
+    unix_prazo = int((agendado + timedelta(minutes=INSTANCIA_PRAZO_MINUTOS)).timestamp())
 
     descricao = f"**Quando:** <t:{unix_agendado}:F> (<t:{unix_agendado}:R>)"
     if vagas is not None:
@@ -858,7 +857,7 @@ async def instancia_command(
         descricao += f"\n{obs}"
     descricao += (
         f"\n\n*Organizado por {interaction.user.mention} — respostas encerram "
-        f"2min após o horário marcado (TESTE)*"
+        f"{INSTANCIA_PRAZO_MINUTOS}min após o horário marcado*"
     )
 
     embed = discord.Embed(title=f"🗡️ Instância: {nome}", description=descricao, color=discord.Color.blurple())
