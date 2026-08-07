@@ -128,6 +128,40 @@ O sync nunca deleta canais/cargos que saíram do arquivo — ele só cria e
 atualiza o que está descrito. Se remover algo do `config.yaml`, apague
 manualmente no Discord.
 
+### Editando as regras (sem mexer no config)
+
+Assim como o resumo dos canais, o texto de `#regras` só é aplicado a
+partir do `config.yaml` **uma vez**, na criação da mensagem. Depois
+disso, editar é feito com `/regras`:
+
+```
+/regras
+```
+
+Abre um formulário com o texto atual já preenchido, dividido em duas
+partes (o Discord limita o tamanho de um campo de texto de formulário
+a 4000 caracteres, e as regras passam disso). Edite à vontade, com
+quebra de linha normal, e envie -- o bot atualiza a mensagem existente
+sem mexer no botão "Li e concordo com as regras", que continua
+funcionando igual.
+
+- Disponível pra quem tem permissão de **Moderação+** (ou Liderança).
+- Se o texto ficar grande demais pro Discord aceitar (limite de 6000
+  caracteres somados em todos os embeds da mensagem), o bot avisa em
+  vez de travar -- é só encurtar um pouco e tentar de novo.
+- Precisa existir uma mensagem de regras antes (`/sync` cria na
+  primeira vez) -- se você apagar essa mensagem do Discord, rode
+  `/sync` de novo pra recriar a partir do `config.yaml`, e depois
+  `/regras` pra ajustar.
+
+**Se você já usou `/resumo` em `#regras` por engano** (ele funciona em
+qualquer canal de texto, não só nos que têm resumo configurado): isso
+criou uma mensagem separada, sem o botão de confirmação, e que não é
+mostrada pra quem ainda não confirmou as regras. Copie o texto que
+você escreveu lá, cole no formulário do `/regras` (ou na primeira
+parte dele, se for curto), e depois apague manualmente a mensagem
+solta que o `/resumo` criou.
+
 ### Editando o resumo fixado de um canal (sem mexer no config)
 
 O Discord não deixa ninguém editar mensagem de outra pessoa/bot pela

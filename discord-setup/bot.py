@@ -36,6 +36,7 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("discord-setup")
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
+REGRAS_MARKER = "discord-setup:regras"
 
 # Ordem hierárquica -- cada membro tem UM só desses cargos por vez (não é
 # mais cumulativo). Visibilidade de canal por tier X libera esse cargo e
@@ -287,6 +288,10 @@ class SetupBot(discord.Client):
         return embeds
 
     async def ensure_rules_message(self, guild: discord.Guild):
+        # Cria a mensagem de regras SÓ na primeira vez (semeada com o texto
+        # do config.yaml). Depois disso o sync nunca mais sobrescreve -- a
+        # edição passa a ser feita com /regras direto no Discord, igual ao
+        # /resumo dos outros canais.
         onboarding = self.config["onboarding"]
         channel = discord.utils.get(guild.text_channels, name=onboarding["regras_channel"])
         if channel is None:
@@ -294,21 +299,13 @@ class SetupBot(discord.Client):
                         onboarding["regras_channel"])
             return
 
-        marker = "discord-setup:regras"
-        target_message = None
         async for msg in channel.history(limit=50):
-            if msg.author.id == self.user.id and msg.embeds and msg.embeds[0].footer.text == marker:
-                target_message = msg
-                break
+            if msg.author.id == self.user.id and msg.embeds and msg.embeds[0].footer.text == REGRAS_MARKER:
+                return  # já existe -- não mexe
 
         embeds = self.build_rules_embeds()
-        embeds[0].set_footer(text=marker)  # precisa ser o [0] -- é o que a busca acima confere
-        view = RulesView(self, onboarding)
-
-        if target_message:
-            await target_message.edit(embeds=embeds, view=view)
-        else:
-            await channel.send(embeds=embeds, view=view)
+        embeds[0].set_footer(text=REGRAS_MARKER)  # precisa ser o [0], é o que a busca acima confere
+        await channel.send(embeds=embeds, view=RulesView(self, onboarding))
 
     # ------------------------------------------------------------------
     # Onboarding: DM perguntando nick/classe + ajuste de apelido
@@ -680,6 +677,87 @@ async def resumo_command(interaction: discord.Interaction, imagem: discord.Attac
         existing_msg.embeds[0].image.url if existing_msg and existing_msg.embeds[0].image else None
     )
     await interaction.response.send_modal(ResumoModal(channel, existing_msg, imagem_url, marker))
+
+
+def _extrair_texto_regras(msg: discord.Message) -> str:
+    partes = []
+    for embed in msg.embeds:
+        if embed.description:
+            partes.append(embed.description)
+        for field in embed.fields:
+            partes.append(f"{field.name}\n{field.value}")
+    return "\n\n".join(partes)
+
+
+def _dividir_embeds_regras(texto: str) -> list[discord.Embed]:
+    # Cada embed aguenta até 4096 caracteres de descrição, mas o TOTAL de
+    # caracteres somado entre todos os embeds de uma mensagem é limitado a
+    # 6000 pelo Discord -- por isso o modal já limita as duas partes a um
+    # tamanho que sempre cabe.
+    pedacos, resto = [], texto
+    while resto:
+        pedacos.append(resto[:4000])
+        resto = resto[4000:]
+    embeds = [discord.Embed(title="📜 Regras da Comunidade", description=pedacos[0],
+                             color=discord.Color.blurple())]
+    for pedaco in pedacos[1:]:
+        embeds.append(discord.Embed(description=pedaco, color=discord.Color.blurple()))
+    embeds[0].set_footer(text=REGRAS_MARKER)
+    return embeds
+
+
+class RegrasModal(discord.ui.Modal, title="Editar regras da comunidade"):
+    parte1 = discord.ui.TextInput(label="Regras (parte 1)", style=discord.TextStyle.paragraph, max_length=4000)
+    parte2 = discord.ui.TextInput(label="Regras (parte 2, opcional)", style=discord.TextStyle.paragraph,
+                                   max_length=1900, required=False)
+
+    def __init__(self, mensagem: discord.Message, texto_atual: str):
+        super().__init__()
+        self.mensagem = mensagem
+        self.parte1.default = texto_atual[:4000]
+        self.parte2.default = texto_atual[4000:5900]
+
+    async def on_submit(self, interaction: discord.Interaction):
+        texto = self.parte1.value + (f"\n\n{self.parte2.value}" if self.parte2.value else "")
+        embeds = _dividir_embeds_regras(texto)
+        # não passa "view" -- deixa o botão "Li e concordo" que já está na
+        # mensagem intacto, só troca o conteúdo dos embeds.
+        try:
+            await self.mensagem.edit(embeds=embeds)
+        except discord.HTTPException as e:
+            await interaction.response.send_message(
+                f"Não consegui salvar -- o texto ficou grande demais pro Discord ({e}). "
+                "Tenta encurtar um pouco.", ephemeral=True
+            )
+            return
+        await interaction.response.send_message("Regras atualizadas. ✅", ephemeral=True)
+
+
+@tree.command(name="regras", description="Edita o texto das regras (abre um formulário com quebra de linha).")
+@app_commands.checks.has_permissions(manage_messages=True)
+async def regras_command(interaction: discord.Interaction):
+    onboarding = client.config["onboarding"]
+    channel = discord.utils.get(interaction.guild.text_channels, name=onboarding["regras_channel"])
+    if channel is None:
+        await interaction.response.send_message(
+            f"Canal '{onboarding['regras_channel']}' não encontrado -- rode /sync primeiro.", ephemeral=True
+        )
+        return
+
+    target = None
+    async for msg in channel.history(limit=50):
+        if msg.author.id == client.user.id and msg.embeds and msg.embeds[0].footer.text == REGRAS_MARKER:
+            target = msg
+            break
+
+    if target is None:
+        await interaction.response.send_message(
+            "Não encontrei a mensagem de regras -- rode /sync primeiro pra criar ela.", ephemeral=True
+        )
+        return
+
+    texto_atual = _extrair_texto_regras(target)
+    await interaction.response.send_modal(RegrasModal(target, texto_atual))
 
 
 XPRATE_MARKER = "discord-setup:xprate"
