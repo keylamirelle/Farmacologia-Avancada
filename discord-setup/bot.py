@@ -89,39 +89,35 @@ class SetupBot(discord.Client):
     # Sincronização de cargos / categorias / canais a partir do config.yaml
     # ------------------------------------------------------------------
     async def get_or_create_role(self, guild: discord.Guild, role_cfg: dict) -> discord.Role:
+        # Só CRIA cargo que não existe. Cargo já existente nunca é editado
+        # pelo sync -- mesmo que tenha sido criado manualmente ou ajustado
+        # à mão depois -- pra não desfazer customização feita direto no
+        # Discord a cada redeploy.
         role = discord.utils.get(guild.roles, name=role_cfg["name"])
+        if role is not None:
+            log.info("Cargo já existia (id=%s), mantido sem alterações: %s", role.id, role.name)
+            return role
+
         perms = discord.Permissions(**{p: True for p in role_cfg.get("permissions", [])})
         color = hex_to_color(role_cfg["color"])
         try:
-            if role is None:
-                role = await guild.create_role(
-                    name=role_cfg["name"],
-                    color=color,
-                    hoist=role_cfg.get("hoist", False),
-                    mentionable=role_cfg.get("mentionable", False),
-                    permissions=perms,
-                    reason="discord-setup: sync config.yaml",
-                )
-                log.info("Cargo CRIADO (novo): %s", role.name)
-            else:
-                await role.edit(
-                    color=color,
-                    hoist=role_cfg.get("hoist", False),
-                    mentionable=role_cfg.get("mentionable", False),
-                    permissions=perms,
-                    reason="discord-setup: sync config.yaml",
-                )
-                log.info("Cargo já existia (id=%s), permissões reaplicadas: %s", role.id, role.name)
+            role = await guild.create_role(
+                name=role_cfg["name"],
+                color=color,
+                hoist=role_cfg.get("hoist", False),
+                mentionable=role_cfg.get("mentionable", False),
+                permissions=perms,
+                reason="discord-setup: sync config.yaml",
+            )
+            log.info("Cargo CRIADO (novo): %s", role.name)
         except discord.Forbidden:
             log.warning(
-                "Sem permissão pra gerenciar o cargo '%s' -- ele está acima do cargo do bot "
-                "na hierarquia. Peça pro dono do servidor arrastar o cargo do bot acima dele. "
-                "Seguindo sem atualizar esse cargo por enquanto.",
+                "Sem permissão pra criar o cargo '%s' -- confirme que o cargo do bot está "
+                "acima de todos em Configurações do Servidor > Cargos.",
                 role_cfg["name"],
             )
-            if role is None:
-                # Não dá pra criar nem editar -- sem essa role, overwrites de canal vão falhar.
-                raise
+            # Não dá pra seguir sem essa role -- os overwrites de canal dependem dela.
+            raise
         return role
 
     def overwrites_for(self, guild: discord.Guild, roles_by_name: dict, visibility: str,
@@ -148,18 +144,19 @@ class SetupBot(discord.Client):
 
     async def get_or_create_category(self, guild: discord.Guild, name: str, position: int,
                                       overwrites: dict) -> discord.CategoryChannel:
+        # Só CRIA categoria que não existe. Categoria já existente nunca é
+        # editada pelo sync (permissão, posição etc ficam como estão),
+        # mesmo que tenha sido criada ou ajustada manualmente.
         category = discord.utils.get(guild.categories, name=name)
+        if category is not None:
+            log.info("Categoria já existia (id=%s), mantida sem alterações: %s", category.id, name)
+            return category
+
         try:
-            if category is None:
-                category = await guild.create_category(name, overwrites=overwrites, position=position)
-                log.info("Categoria CRIADA (nova): %s", name)
-            else:
-                await category.edit(overwrites=overwrites, position=position)
-                log.info("Categoria já existia (id=%s): %s", category.id, name)
+            category = await guild.create_category(name, overwrites=overwrites, position=position)
+            log.info("Categoria CRIADA (nova): %s", name)
         except discord.Forbidden:
-            log.warning("Sem permissão pra gerenciar a categoria '%s' -- pulando.", name)
-            if category is None:
-                raise
+            log.warning("Sem permissão pra criar a categoria '%s' -- canais dela ficarão sem categoria.", name)
         return category
 
     async def ensure_text_intro(self, channel: discord.TextChannel, resumo: str):
@@ -181,6 +178,10 @@ class SetupBot(discord.Client):
 
     async def get_or_create_channel(self, guild: discord.Guild, category: discord.CategoryChannel,
                                      chan_cfg: dict, position: int, overwrites: dict):
+        # Só CRIA canal que não existe. Canal já existente nunca é editado
+        # pelo sync (categoria, permissão, posição, tópico etc ficam como
+        # estão) -- mesmo que tenha sido criado ou movido/renomeado
+        # manualmente, pra não desfazer nada a cada redeploy.
         name = chan_cfg["name"]
         chan_type = chan_cfg["type"]
         resumo = chan_cfg.get("resumo")
@@ -189,55 +190,41 @@ class SetupBot(discord.Client):
         existing = discord.utils.get(category.channels, name=slug)
         existing = existing or discord.utils.get(guild.channels, name=slug)
 
-        if existing is not None and not isinstance(existing, CHANNEL_TYPE_CLASS[chan_type]):
-            log.warning(
-                "Canal '%s' já existe como %s, mas o config.yaml pede tipo '%s'. O Discord "
-                "não permite converter o tipo por API -- apague o canal antigo manualmente "
-                "no Discord e rode /sync de novo pra ele nascer com o tipo certo. Pulando por "
-                "enquanto.",
-                name, type(existing).__name__, chan_type,
-            )
-            return None
+        if existing is not None:
+            if not isinstance(existing, CHANNEL_TYPE_CLASS[chan_type]):
+                log.warning(
+                    "Canal '%s' já existe como %s, mas o config.yaml pede tipo '%s'. Deixando "
+                    "como está (não mexo em canal existente) -- se quiser mesmo trocar o tipo, "
+                    "apague esse canal manualmente no Discord e rode /sync de novo.",
+                    name, type(existing).__name__, chan_type,
+                )
+                return None
+            categoria_atual = existing.category.name if existing.category else "(sem categoria)"
+            log.info("Canal já existia (id=%s, em '%s'), mantido sem alterações: %s",
+                     existing.id, categoria_atual, name)
+            if resumo and chan_type == "texto":
+                await self.ensure_text_intro(existing, resumo)
+            return existing
 
         try:
             if chan_type == "audio":
-                if existing is None:
-                    existing = await guild.create_voice_channel(
-                        name, category=category, overwrites=overwrites, position=position
-                    )
-                    log.info("Canal de voz CRIADO (novo, procurava por nome='%s'): %s", slug, name)
-                else:
-                    categoria_antiga = existing.category.name if existing.category else "(sem categoria)"
-                    await existing.edit(category=category, overwrites=overwrites, position=position)
-                    log.info("Canal de voz já existia (id=%s, estava em '%s'): %s",
-                             existing.id, categoria_antiga, name)
+                existing = await guild.create_voice_channel(
+                    name, category=category, overwrites=overwrites, position=position
+                )
+                log.info("Canal de voz CRIADO (novo): %s", name)
             elif chan_type == "forum":
-                if existing is None:
-                    existing = await guild.create_forum(
-                        name, category=category, overwrites=overwrites, position=position,
-                        topic=resumo,
-                    )
-                    log.info("Canal forum CRIADO (novo, procurava por nome='%s'): %s", slug, name)
-                else:
-                    categoria_antiga = existing.category.name if existing.category else "(sem categoria)"
-                    await existing.edit(category=category, overwrites=overwrites, position=position,
-                                         topic=resumo)
-                    log.info("Canal forum já existia (id=%s, estava em '%s'): %s",
-                             existing.id, categoria_antiga, name)
+                existing = await guild.create_forum(
+                    name, category=category, overwrites=overwrites, position=position, topic=resumo,
+                )
+                log.info("Canal forum CRIADO (novo): %s", name)
             else:
-                if existing is None:
-                    existing = await guild.create_text_channel(
-                        name, category=category, overwrites=overwrites, position=position
-                    )
-                    log.info("Canal de texto CRIADO (novo, procurava por nome='%s'): %s", slug, name)
-                else:
-                    categoria_antiga = existing.category.name if existing.category else "(sem categoria)"
-                    await existing.edit(category=category, overwrites=overwrites, position=position)
-                    log.info("Canal de texto já existia (id=%s, estava em '%s'): %s",
-                             existing.id, categoria_antiga, name)
+                existing = await guild.create_text_channel(
+                    name, category=category, overwrites=overwrites, position=position
+                )
+                log.info("Canal de texto CRIADO (novo): %s", name)
         except discord.Forbidden:
-            log.warning("Sem permissão pra gerenciar o canal '%s' -- pulando.", name)
-            return existing
+            log.warning("Sem permissão pra criar o canal '%s'.", name)
+            return None
 
         if resumo and chan_type == "texto":
             await self.ensure_text_intro(existing, resumo)
@@ -251,17 +238,9 @@ class SetupBot(discord.Client):
         for role_cfg in sorted(self.config["roles"], key=lambda r: r["position"]):
             roles_by_name[role_cfg["name"]] = await self.get_or_create_role(guild, role_cfg)
 
-        # posiciona os cargos gerenciados logo abaixo do cargo mais alto do
-        # bot (o bot só pode reordenar cargos abaixo do seu próprio cargo)
-        try:
-            ordered = sorted(self.config["roles"], key=lambda r: r["position"])
-            positions = {roles_by_name[r["name"]]: i + 1 for i, r in enumerate(ordered)}
-            await guild.edit_role_positions(positions=positions)
-        except discord.Forbidden:
-            log.warning(
-                "Sem permissão pra reordenar cargos -- arraste o cargo do bot "
-                "acima de 'Liderança' em Configurações do Servidor > Cargos."
-            )
+        # Não reordena cargos existentes -- o Discord já posiciona cargo
+        # recém-criado logo acima de @everyone sozinho, e mexer na posição
+        # de cargos que já existem desfaria reordenação manual a cada sync.
 
         # 2) Categorias e canais
         categorias_antes = len(guild.categories)
@@ -287,9 +266,9 @@ class SetupBot(discord.Client):
         canais_novos = len(guild.channels) - canais_antes
         log.info(
             "Resumo do sync: %d categorias novas, %d canais novos, %d canais já existiam "
-            "(de %d configurados). Se o número de 'canais novos' for maior que 0 num servidor "
-            "que já estava configurado, procure acima por 'CRIADO (novo, procurava por nome=...)' "
-            "-- geralmente é canal renomeado manualmente no Discord, que o bot não reconhece mais.",
+            "(de %d configurados). Nada que já existia foi alterado. Se aparecer 'CRIADO (novo)' "
+            "pra um canal que você já esperava existir, é sinal de que ele foi renomeado no "
+            "Discord e o bot não reconhece mais o link com o config.yaml.",
             categorias_novas, canais_novos, total_configurado - canais_novos, total_configurado,
         )
         log.info("Sincronização concluída.")

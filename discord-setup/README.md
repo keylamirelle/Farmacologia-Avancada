@@ -124,9 +124,18 @@ Edite `config.yaml` e depois:
   hora, sem precisar reiniciar o bot; **ou**
 - Reinicie o processo `bot.py` — ele sincroniza automaticamente ao subir.
 
-O sync nunca deleta canais/cargos que saíram do arquivo — ele só cria e
-atualiza o que está descrito. Se remover algo do `config.yaml`, apague
-manualmente no Discord.
+**O sync só cria o que ainda não existe.** Cargo, categoria ou canal que
+já existe no Discord (foi o bot que criou antes, ou foi feito à mão) fica
+**100% intocado** -- cor, permissão, posição, categoria, tudo. O `/sync`
+nunca edita nada que já está lá, só adiciona o que está no `config.yaml`
+e ainda não tem correspondente no servidor. Também nunca deleta o que
+saiu do arquivo -- isso continua sendo manual.
+
+Na prática isso significa: depois que um cargo/canal é criado uma vez,
+qualquer ajuste nele (nome, permissão, posição, cor...) só muda de novo
+se você mudar **direto no Discord** -- editar o `config.yaml` e rodar
+`/sync` de novo não vai reaplicar nada nele. O `config.yaml` só serve
+pra descrever o que **ainda falta criar**.
 
 ### Por que às vezes aparece um canal "duplicado" depois do sync
 
@@ -134,18 +143,19 @@ O bot reconhece um canal já existente **pelo nome exato** que está no
 `config.yaml`. Se alguém renomeia esse canal manualmente no Discord
 (emoji, tradução, correção de digitação...), o próximo `/sync` não
 reconhece mais aquele canal como "o mesmo" — e cria um **novo**, com o
-nome original do config, do lado do que foi renomeado. Não é o bot
-"resetando" nada por conta própria; é o link pelo nome que quebrou.
+nome original do config, do lado do que foi renomeado (já que agora o
+sync nunca mexe em canal existente, esse é o único cenário em que algo
+"extra" pode aparecer).
 
 Pra saber exatamente o que aconteceu, olhe o log do deploy (Railway →
-Deployments → View Logs) depois de um `/sync`. Cada linha agora deixa
-claro o que houve com cada canal/categoria:
+Deployments → View Logs) depois de um `/sync`. Cada linha deixa claro o
+que houve com cada canal/categoria:
 
-- `CRIADO (novo, procurava por nome='...')` — não achou nada com esse
-  nome exato e criou um novo. Se isso aparecer pra um canal que você
-  *sabia* que já existia, é sinal de que ele foi renomeado.
-- `já existia (id=..., estava em '...')` — achou e só atualizou
-  permissão/posição, não mexeu no conteúdo.
+- `CRIADO (novo)` — não achou nada com esse nome exato e criou um novo.
+  Se isso aparecer pra um canal que você *sabia* que já existia, é
+  sinal de que ele foi renomeado.
+- `já existia (id=..., em '...'), mantido sem alterações` — achou e não
+  tocou em nada.
 - No fim do sync, uma linha de **Resumo** soma tudo: quantas
   categorias/canais novos vs. quantos já existiam.
 
