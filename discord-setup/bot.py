@@ -102,7 +102,7 @@ class SetupBot(discord.Client):
                     permissions=perms,
                     reason="discord-setup: sync config.yaml",
                 )
-                log.info("Cargo criado: %s", role.name)
+                log.info("Cargo CRIADO (novo): %s", role.name)
             else:
                 await role.edit(
                     color=color,
@@ -111,6 +111,7 @@ class SetupBot(discord.Client):
                     permissions=perms,
                     reason="discord-setup: sync config.yaml",
                 )
+                log.info("Cargo já existia (id=%s), permissões reaplicadas: %s", role.id, role.name)
         except discord.Forbidden:
             log.warning(
                 "Sem permissão pra gerenciar o cargo '%s' -- ele está acima do cargo do bot "
@@ -151,9 +152,10 @@ class SetupBot(discord.Client):
         try:
             if category is None:
                 category = await guild.create_category(name, overwrites=overwrites, position=position)
-                log.info("Categoria criada: %s", name)
+                log.info("Categoria CRIADA (nova): %s", name)
             else:
                 await category.edit(overwrites=overwrites, position=position)
+                log.info("Categoria já existia (id=%s): %s", category.id, name)
         except discord.Forbidden:
             log.warning("Sem permissão pra gerenciar a categoria '%s' -- pulando.", name)
             if category is None:
@@ -203,27 +205,36 @@ class SetupBot(discord.Client):
                     existing = await guild.create_voice_channel(
                         name, category=category, overwrites=overwrites, position=position
                     )
-                    log.info("Canal de voz criado: %s", name)
+                    log.info("Canal de voz CRIADO (novo, procurava por nome='%s'): %s", slug, name)
                 else:
+                    categoria_antiga = existing.category.name if existing.category else "(sem categoria)"
                     await existing.edit(category=category, overwrites=overwrites, position=position)
+                    log.info("Canal de voz já existia (id=%s, estava em '%s'): %s",
+                             existing.id, categoria_antiga, name)
             elif chan_type == "forum":
                 if existing is None:
                     existing = await guild.create_forum(
                         name, category=category, overwrites=overwrites, position=position,
                         topic=resumo,
                     )
-                    log.info("Canal forum criado: %s", name)
+                    log.info("Canal forum CRIADO (novo, procurava por nome='%s'): %s", slug, name)
                 else:
+                    categoria_antiga = existing.category.name if existing.category else "(sem categoria)"
                     await existing.edit(category=category, overwrites=overwrites, position=position,
                                          topic=resumo)
+                    log.info("Canal forum já existia (id=%s, estava em '%s'): %s",
+                             existing.id, categoria_antiga, name)
             else:
                 if existing is None:
                     existing = await guild.create_text_channel(
                         name, category=category, overwrites=overwrites, position=position
                     )
-                    log.info("Canal de texto criado: %s", name)
+                    log.info("Canal de texto CRIADO (novo, procurava por nome='%s'): %s", slug, name)
                 else:
+                    categoria_antiga = existing.category.name if existing.category else "(sem categoria)"
                     await existing.edit(category=category, overwrites=overwrites, position=position)
+                    log.info("Canal de texto já existia (id=%s, estava em '%s'): %s",
+                             existing.id, categoria_antiga, name)
         except discord.Forbidden:
             log.warning("Sem permissão pra gerenciar o canal '%s' -- pulando.", name)
             return existing
@@ -253,6 +264,10 @@ class SetupBot(discord.Client):
             )
 
         # 2) Categorias e canais
+        categorias_antes = len(guild.categories)
+        canais_antes = len(guild.channels)
+        total_configurado = sum(len(c["channels"]) for c in self.config["categories"])
+
         for cat_cfg in sorted(self.config["categories"], key=lambda c: c["order"]):
             deny_send = any(ch.get("somente_leitura") for ch in cat_cfg["channels"])
             cat_overwrites = self.overwrites_for(guild, roles_by_name, cat_cfg["visibility"])
@@ -268,6 +283,15 @@ class SetupBot(discord.Client):
                 )
                 await self.get_or_create_channel(guild, category, chan_cfg, idx, chan_overwrites)
 
+        categorias_novas = len(guild.categories) - categorias_antes
+        canais_novos = len(guild.channels) - canais_antes
+        log.info(
+            "Resumo do sync: %d categorias novas, %d canais novos, %d canais já existiam "
+            "(de %d configurados). Se o número de 'canais novos' for maior que 0 num servidor "
+            "que já estava configurado, procure acima por 'CRIADO (novo, procurava por nome=...)' "
+            "-- geralmente é canal renomeado manualmente no Discord, que o bot não reconhece mais.",
+            categorias_novas, canais_novos, total_configurado - canais_novos, total_configurado,
+        )
         log.info("Sincronização concluída.")
         return roles_by_name
 

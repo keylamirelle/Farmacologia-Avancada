@@ -128,6 +128,32 @@ O sync nunca deleta canais/cargos que saíram do arquivo — ele só cria e
 atualiza o que está descrito. Se remover algo do `config.yaml`, apague
 manualmente no Discord.
 
+### Por que às vezes aparece um canal "duplicado" depois do sync
+
+O bot reconhece um canal já existente **pelo nome exato** que está no
+`config.yaml`. Se alguém renomeia esse canal manualmente no Discord
+(emoji, tradução, correção de digitação...), o próximo `/sync` não
+reconhece mais aquele canal como "o mesmo" — e cria um **novo**, com o
+nome original do config, do lado do que foi renomeado. Não é o bot
+"resetando" nada por conta própria; é o link pelo nome que quebrou.
+
+Pra saber exatamente o que aconteceu, olhe o log do deploy (Railway →
+Deployments → View Logs) depois de um `/sync`. Cada linha agora deixa
+claro o que houve com cada canal/categoria:
+
+- `CRIADO (novo, procurava por nome='...')` — não achou nada com esse
+  nome exato e criou um novo. Se isso aparecer pra um canal que você
+  *sabia* que já existia, é sinal de que ele foi renomeado.
+- `já existia (id=..., estava em '...')` — achou e só atualizou
+  permissão/posição, não mexeu no conteúdo.
+- No fim do sync, uma linha de **Resumo** soma tudo: quantas
+  categorias/canais novos vs. quantos já existiam.
+
+Se identificar um caso desses, o conserto é manual: apague o canal
+duplicado (o novo, vazio) e, se quiser manter o nome customizado,
+ajuste o `name:` dele no `config.yaml` pra bater com o que está no
+Discord.
+
 ### Editando as regras (sem mexer no config)
 
 Assim como o resumo dos canais, o texto de `#regras` só é aplicado a
