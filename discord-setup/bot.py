@@ -38,6 +38,102 @@ log = logging.getLogger("discord-setup")
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 REGRAS_MARKER = "discord-setup:regras"
 
+# -----------------------------------------------------------------------------
+# Permissões extras por comando (/permissao) -- guardadas numa mensagem do
+# Discord (não em arquivo local) porque o Railway reseta o disco a cada
+# redeploy. Carregado uma vez em on_ready e mantido em cache em memória;
+# toda alteração via /permissao reescreve a mensagem na hora.
+# -----------------------------------------------------------------------------
+COMANDOS_GERENCIAVEIS = [
+    "sync", "promover", "apelido", "resumo", "regras",
+    "xprate", "instancia", "cronograma", "comunicado", "permissao",
+]
+PERMISSOES_CANAL = "comunicacao-lideranca"
+PERMISSOES_MARKER = "discord-setup:permissoes"
+
+_permissoes_extra: dict[str, dict[str, set]] = {}
+_permissoes_msg: discord.Message | None = None
+
+
+async def _carregar_permissoes_extra(guild: discord.Guild):
+    global _permissoes_msg
+    channel = discord.utils.get(guild.text_channels, name=PERMISSOES_CANAL)
+    if channel is None:
+        return
+    async for msg in channel.history(limit=50):
+        footer = (msg.embeds[0].footer.text or "") if msg.embeds else ""
+        if msg.author.id == client.user.id and footer.startswith(PERMISSOES_MARKER):
+            _permissoes_msg = msg
+            try:
+                bruto = json.loads(footer.split("|", 1)[1])
+                for cmd, dados in bruto.items():
+                    _permissoes_extra[cmd] = {
+                        "users": set(dados.get("users", [])),
+                        "roles": set(dados.get("roles", [])),
+                    }
+            except (IndexError, ValueError, json.JSONDecodeError):
+                log.warning("Não consegui ler a mensagem de permissões extras -- ignorando.")
+            return
+
+
+async def _salvar_permissoes_extra(guild: discord.Guild):
+    global _permissoes_msg
+    channel = discord.utils.get(guild.text_channels, name=PERMISSOES_CANAL)
+    if channel is None:
+        log.warning("Canal '%s' não encontrado -- não consegui salvar permissões extras.",
+                    PERMISSOES_CANAL)
+        return
+
+    serializavel = {
+        cmd: {"users": sorted(dados["users"]), "roles": sorted(dados["roles"])}
+        for cmd, dados in _permissoes_extra.items() if dados["users"] or dados["roles"]
+    }
+
+    linhas = [
+        "⚙️ **Dados internos do bot -- não edite esta mensagem manualmente.**",
+        "Controla quem tem acesso extra a comandos além de Moderação+/Liderança "
+        "(gerenciado com `/permissao`).",
+        "",
+    ]
+    if not serializavel:
+        linhas.append("_Nenhuma permissão extra configurada no momento._")
+    else:
+        for cmd, dados in serializavel.items():
+            partes = []
+            if dados["users"]:
+                partes.append("pessoas: " + ", ".join(f"<@{u}>" for u in dados["users"]))
+            if dados["roles"]:
+                partes.append("cargos: " + ", ".join(f"<@&{r}>" for r in dados["roles"]))
+            linhas.append(f"`/{cmd}` — " + "; ".join(partes))
+
+    embed = discord.Embed(description="\n".join(linhas), color=discord.Color.dark_grey())
+    embed.set_footer(text=f"{PERMISSOES_MARKER}|{json.dumps(serializavel)}")
+
+    if _permissoes_msg:
+        await _permissoes_msg.edit(embed=embed)
+    else:
+        _permissoes_msg = await channel.send(embed=embed)
+
+
+def permissao_ou_excecao(nome_comando: str, **permissoes_base):
+    """Mesmo que app_commands.checks.has_permissions(**permissoes_base), mas
+    também libera quem foi adicionado via /permissao pra esse comando
+    específico (pessoa ou cargo), mesmo sem ter a permissão base."""
+    permissoes_necessarias = discord.Permissions(**permissoes_base)
+
+    async def predicate(interaction: discord.Interaction) -> bool:
+        if interaction.permissions.is_superset(permissoes_necessarias):
+            return True
+        extra = _permissoes_extra.get(nome_comando)
+        if not extra:
+            return False
+        if interaction.user.id in extra["users"]:
+            return True
+        ids_dos_cargos = {r.id for r in getattr(interaction.user, "roles", [])}
+        return bool(ids_dos_cargos & extra["roles"])
+
+    return app_commands.check(predicate)
+
 # Ordem hierárquica -- cada membro tem UM só desses cargos por vez (não é
 # mais cumulativo). Visibilidade de canal por tier X libera esse cargo e
 # todos os que vêm depois dele nesta lista.
@@ -400,6 +496,7 @@ class SetupBot(discord.Client):
         self.add_view(RulesView(self, self.config["onboarding"]))
         self.add_view(InstanciaView())
         await self.ensure_rules_message(guild)
+        await _carregar_permissoes_extra(guild)
         if not fechar_instancias_vencidas.is_running():
             fechar_instancias_vencidas.start()
         log.info("Pronto. Cargos ativos: %s", ", ".join(roles_by_name))
@@ -548,7 +645,7 @@ async def _antes_de_fechar_instancias_vencidas():
 
 
 @tree.command(name="sync", description="Reaplica config.yaml no servidor (cargos, canais e regras).")
-@app_commands.checks.has_permissions(administrator=True)
+@permissao_ou_excecao("sync", administrator=True)
 async def sync_command(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     client.config = load_config()  # recarrega o arquivo do zero
@@ -563,7 +660,7 @@ async def sync_command(interaction: discord.Interaction):
     cargo="Novo cargo -- substitui qualquer um dos outros três que a pessoa já tinha",
 )
 @app_commands.choices(cargo=[app_commands.Choice(name=c, value=c) for c in CARGOS_HIERARQUICOS])
-@app_commands.checks.has_permissions(administrator=True)
+@permissao_ou_excecao("promover", administrator=True)
 async def promover_command(interaction: discord.Interaction, membro: discord.Member, cargo: app_commands.Choice[str]):
     # O Discord não deixa NINGUÉM (nem Administrator) atribuir manualmente um
     # cargo igual ou acima do próprio cargo mais alto -- só o Dono real da
@@ -604,7 +701,7 @@ async def promover_command(interaction: discord.Interaction, membro: discord.Mem
     membro="Quem vai ter o apelido alterado",
     nick="Novo apelido (deixe em branco pra remover o apelido customizado e voltar ao nome original)",
 )
-@app_commands.checks.has_permissions(administrator=True)
+@permissao_ou_excecao("apelido", administrator=True)
 async def apelido_command(interaction: discord.Interaction, membro: discord.Member, nick: str = None):
     # Mesma trava de hierarquia do /promover: editar apelido de outra pessoa
     # exige que o cargo mais alto de quem edita seja MAIOR que o da pessoa
@@ -660,7 +757,7 @@ class ResumoModal(discord.ui.Modal, title="Resumo do canal"):
 
 @tree.command(name="resumo", description="Cria/atualiza o resumo fixado no topo deste canal (abre um formulário com quebra de linha).")
 @app_commands.describe(imagem="Imagem opcional pra ilustrar o resumo (deixe em branco pra manter a atual)")
-@app_commands.checks.has_permissions(manage_messages=True)
+@permissao_ou_excecao("resumo", manage_messages=True)
 async def resumo_command(interaction: discord.Interaction, imagem: discord.Attachment = None):
     channel = interaction.channel
     if not isinstance(channel, discord.TextChannel):
@@ -737,7 +834,7 @@ class RegrasModal(discord.ui.Modal, title="Editar regras da comunidade"):
 
 
 @tree.command(name="regras", description="Edita o texto das regras (abre um formulário com quebra de linha).")
-@app_commands.checks.has_permissions(manage_messages=True)
+@permissao_ou_excecao("regras", manage_messages=True)
 async def regras_command(interaction: discord.Interaction):
     onboarding = client.config["onboarding"]
     channel = discord.utils.get(interaction.guild.text_channels, name=onboarding["regras_channel"])
@@ -792,7 +889,7 @@ def _formata_taxa(label: str, bonus: float, nidhogg: float) -> str:
     app_commands.Choice(name="@here (só quem está online)", value="here"),
     app_commands.Choice(name="Cargo Participantes", value="participantes"),
 ])
-@app_commands.checks.has_permissions(manage_messages=True)
+@permissao_ou_excecao("xprate", manage_messages=True)
 async def xprate_command(
     interaction: discord.Interaction,
     exp_bonus: float = None,
@@ -903,7 +1000,7 @@ def _parse_data_hora(data: str, hora: str) -> datetime:
     mencionar="Quem chamar no aviso (padrão: @everyone)",
 )
 @app_commands.choices(mencionar=MENCIONAR_CHOICES)
-@app_commands.checks.has_permissions(manage_messages=True)
+@permissao_ou_excecao("instancia", manage_messages=True)
 async def instancia_command(
     interaction: discord.Interaction,
     nome: str,
@@ -975,7 +1072,7 @@ CRONOGRAMA_MARKER = "discord-setup:cronograma"
     domingo="Atividade de domingo",
     limpar="Limpa o cronograma inteiro, ignorando os outros campos",
 )
-@app_commands.checks.has_permissions(manage_messages=True)
+@permissao_ou_excecao("cronograma", manage_messages=True)
 async def cronograma_command(
     interaction: discord.Interaction,
     segunda: str = None,
@@ -1067,7 +1164,7 @@ class ComunicadoModal(discord.ui.Modal, title="Novo comunicado"):
     mencionar="Quem chamar no aviso (padrão: @everyone)",
 )
 @app_commands.choices(mencionar=MENCIONAR_CHOICES)
-@app_commands.checks.has_permissions(manage_messages=True)
+@permissao_ou_excecao("comunicado", manage_messages=True)
 async def comunicado_command(
     interaction: discord.Interaction,
     imagem: discord.Attachment = None,
@@ -1084,6 +1181,61 @@ async def comunicado_command(
     await interaction.response.send_modal(
         ComunicadoModal(channel, imagem_url, _conteudo_mencao(mencionar))
     )
+
+
+@tree.command(name="permissao", description="Dá ou tira acesso extra a um comando, pra uma pessoa ou cargo específico.")
+@app_commands.describe(
+    acao="Adicionar ou remover acesso",
+    comando="Qual comando",
+    alvo="Pessoa ou cargo que vai ganhar/perder o acesso extra",
+)
+@app_commands.choices(
+    acao=[
+        app_commands.Choice(name="Adicionar", value="add"),
+        app_commands.Choice(name="Remover", value="remove"),
+    ],
+    comando=[app_commands.Choice(name=c, value=c) for c in COMANDOS_GERENCIAVEIS],
+)
+@permissao_ou_excecao("permissao", manage_messages=True)
+async def permissao_command(
+    interaction: discord.Interaction,
+    acao: app_commands.Choice[str],
+    comando: app_commands.Choice[str],
+    alvo: discord.Member | discord.Role,
+):
+    dados = _permissoes_extra.setdefault(comando.value, {"users": set(), "roles": set()})
+    chave = "roles" if isinstance(alvo, discord.Role) else "users"
+
+    if acao.value == "add":
+        dados[chave].add(alvo.id)
+        verbo = "ganhou acesso extra a"
+    else:
+        dados[chave].discard(alvo.id)
+        verbo = "perdeu o acesso extra a"
+
+    await _salvar_permissoes_extra(interaction.guild)
+    await interaction.response.send_message(
+        f"{alvo.mention} agora {verbo} `/{comando.value}`. ✅\n"
+        "-# Isso é além do acesso padrão (Moderação+/Liderança) -- não tira permissão de "
+        "quem já tinha pelo cargo normal.",
+        ephemeral=True,
+    )
+
+
+@tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    if isinstance(error, (app_commands.MissingPermissions, app_commands.CheckFailure)):
+        msg = "Você não tem permissão pra usar esse comando."
+    else:
+        log.exception("Erro não tratado num comando de barra.", exc_info=error)
+        msg = "Deu um erro inesperado rodando esse comando. Chama a Liderança."
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
+    except discord.HTTPException:
+        pass
 
 
 if __name__ == "__main__":
