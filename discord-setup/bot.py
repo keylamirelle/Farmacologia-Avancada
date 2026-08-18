@@ -499,14 +499,18 @@ class SetupBot(discord.Client):
                 len(self.guilds), ", ".join(f"{g.name} ({g.id})" for g in self.guilds),
             )
             return
-        roles_by_name = await self.sync_structure(guild)
+        # NÃO roda sync_structure aqui de propósito -- estrutura do Discord
+        # (cargos/categorias/canais) só muda quando alguém pede
+        # explicitamente com /sync. Reinício do bot (redeploy de código,
+        # ou o Railway reiniciando por conta própria) nunca deve mexer
+        # sozinho na estrutura existente.
         self.add_view(RulesView(self, self.config["onboarding"]))
         self.add_view(InstanciaView())
-        await self.ensure_rules_message(guild)
         await _carregar_permissoes_extra(guild)
         if not fechar_instancias_vencidas.is_running():
             fechar_instancias_vencidas.start()
-        log.info("Pronto. Cargos ativos: %s", ", ".join(roles_by_name))
+        log.info("Pronto -- conectado em '%s'. Rode /sync quando quiser aplicar o config.yaml.",
+                 guild.name)
 
 
 class RulesView(discord.ui.View):
@@ -651,14 +655,78 @@ async def _antes_de_fechar_instancias_vencidas():
     await client.wait_until_ready()
 
 
-@tree.command(name="sync", description="Reaplica config.yaml no servidor (cargos, canais e regras).")
+def _calcular_pendencias(guild: discord.Guild) -> dict:
+    """Só CONFERE o que falta -- não cria nada. Usado pra mostrar a prévia
+    antes do /sync de fato mexer no servidor."""
+    cargos_faltando = [
+        r["name"] for r in client.config["roles"]
+        if discord.utils.get(guild.roles, name=r["name"]) is None
+    ]
+    categorias_faltando = [
+        c["name"] for c in client.config["categories"]
+        if discord.utils.get(guild.categories, name=c["name"]) is None
+    ]
+    canais_faltando = []
+    for cat_cfg in client.config["categories"]:
+        for ch in cat_cfg["channels"]:
+            slug = ch["name"] if ch["type"] == "audio" else ch["name"].lower().replace(" ", "-")
+            if discord.utils.get(guild.channels, name=slug) is None:
+                canais_faltando.append(f"{ch['name']} (em {cat_cfg['name']})")
+    return {"cargos": cargos_faltando, "categorias": categorias_faltando, "canais": canais_faltando}
+
+
+class ConfirmarSyncView(discord.ui.View):
+    def __init__(self, guild: discord.Guild):
+        super().__init__(timeout=120)
+        self.guild = guild
+
+    @discord.ui.button(label="Confirmar e criar", style=discord.ButtonStyle.success)
+    async def confirmar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="Criando... ⏳", view=None)
+        client.config = load_config()  # recarrega o arquivo do zero, caso tenha mudado
+        await client.sync_structure(self.guild)
+        await client.ensure_rules_message(self.guild)
+        self.stop()
+        await interaction.edit_original_response(content="Sincronização concluída. ✅")
+
+    @discord.ui.button(label="Cancelar", style=discord.ButtonStyle.danger)
+    async def cancelar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.stop()
+        await interaction.response.edit_message(content="Cancelado -- nada foi alterado.", view=None)
+
+    async def on_timeout(self):
+        self.stop()
+
+
+@tree.command(name="sync", description="Mostra o que falta criar do config.yaml e pede confirmação antes de aplicar.")
 @permissao_ou_excecao("sync", administrator=True)
 async def sync_command(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
     client.config = load_config()  # recarrega o arquivo do zero
-    await client.sync_structure(interaction.guild)
-    await client.ensure_rules_message(interaction.guild)
-    await interaction.followup.send("Configuração sincronizada com sucesso. ✅", ephemeral=True)
+    pendencias = _calcular_pendencias(interaction.guild)
+    total = len(pendencias["cargos"]) + len(pendencias["categorias"]) + len(pendencias["canais"])
+
+    if total == 0:
+        await interaction.response.send_message(
+            "Já está tudo sincronizado -- nada novo pra criar. ✅", ephemeral=True
+        )
+        return
+
+    linhas = ["**Isso vai criar:**"]
+    if pendencias["cargos"]:
+        linhas.append("🎭 Cargos: " + ", ".join(pendencias["cargos"]))
+    if pendencias["categorias"]:
+        linhas.append("📁 Categorias: " + ", ".join(pendencias["categorias"]))
+    if pendencias["canais"]:
+        linhas.append("📄 Canais: " + "; ".join(pendencias["canais"]))
+    linhas.append(
+        "\n**Nada que já existe será alterado.** Se algo acima já existir no "
+        "Discord (e por isso não deveria aparecer aqui), cancele e chame a "
+        "Liderança antes de confirmar."
+    )
+
+    await interaction.response.send_message(
+        "\n".join(linhas), view=ConfirmarSyncView(interaction.guild), ephemeral=True
+    )
 
 
 @tree.command(name="promover", description="Troca o cargo hierárquico de um membro (Participantes/Membros/Moderação/Liderança).")

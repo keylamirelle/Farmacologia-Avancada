@@ -118,11 +118,25 @@ sudo systemctl enable --now discord-comunidade
 
 ## 5. Atualizar quando o escopo mudar
 
-Edite `config.yaml` e depois:
+**Redeploy e reinício do bot NUNCA mexem na estrutura do Discord por conta
+própria.** Isso é de propósito: subir código novo (uma correção de bug, um
+comando novo) não tem nada a ver com querer criar cargo/canal, e reiniciar
+o processo sozinho não deveria arriscar tocar em nada que já existe. A
+única forma de aplicar o `config.yaml` no servidor é rodar `/sync` — uma
+ação deliberada, no Discord, quando você realmente quer isso.
 
-- Rode `/sync` no próprio Discord (comando de barra, só admins) — aplica na
-  hora, sem precisar reiniciar o bot; **ou**
-- Reinicie o processo `bot.py` — ele sincroniza automaticamente ao subir.
+Passo a passo:
+
+1. Edite `config.yaml` com o que quer adicionar.
+2. Redeploy normal (push no Railway) — o bot sobe, conecta, mas **não** mexe
+   em cargo/canal nenhum sozinho.
+3. Rode `/sync` no Discord. Ele mostra uma **prévia** do que pretende criar
+   (só o que ainda não existe) e pede confirmação com um botão antes de
+   criar qualquer coisa.
+4. Confira a lista: se aparecer algo que você *sabia* que já existia, **não
+   confirme** — cancele e investigue antes (pode ser sinal de um bug
+   parecido com o que já aconteceu uma vez). Se a lista bater com o que
+   você esperava, clique em **"Confirmar e criar"**.
 
 **O sync só cria o que ainda não existe.** Cargo, categoria ou canal que
 já existe no Discord (foi o bot que criou antes, ou foi feito à mão) fica
