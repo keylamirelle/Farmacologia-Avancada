@@ -283,11 +283,15 @@ class SetupBot(discord.Client):
         resumo = chan_cfg.get("resumo")
         is_voice = chan_type == "audio"
         slug = name if is_voice else name.lower().replace(" ", "-")
-        # Busca só dentro da própria categoria -- não no servidor inteiro --
-        # pra permitir canais com o mesmo nome em categorias diferentes
-        # (ex: mesmo canal de docs repetido em Liderança e Moderação) sem
-        # que um "adote" o outro por engano.
+        # Busca na categoria E no servidor inteiro (fallback) -- é o que
+        # garante achar o canal mesmo se ele não estiver mais na categoria
+        # esperada (movido manualmente, ou qualquer discrepância de cache).
+        # Sem esse fallback, um canal que já existe pode não ser reconhecido
+        # e acabar sendo recriado do zero -- perdendo histórico. É por isso
+        # que cada nome de canal no config.yaml precisa ser único no
+        # servidor inteiro, nunca repetido entre categorias.
         existing = discord.utils.get(category.channels, name=slug)
+        existing = existing or discord.utils.get(guild.channels, name=slug)
 
         if existing is not None:
             if not isinstance(existing, CHANNEL_TYPE_CLASS[chan_type]):

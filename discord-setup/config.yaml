@@ -423,7 +423,7 @@ categories:
       - name: "comunicacao-moderacao"
         type: texto
         resumo: "Canal interno da Moderação."
-      - name: "comandos-do-bot"
+      - name: "comandos-do-bot-mod"
         type: texto
         resumo: &comandos_do_bot_resumo |
           🤖 **Comandos do bot**
