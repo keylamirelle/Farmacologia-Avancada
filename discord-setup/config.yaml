@@ -423,6 +423,60 @@ categories:
       - name: "comunicacao-moderacao"
         type: texto
         resumo: "Canal interno da Moderação."
+      - name: "comandos-do-bot"
+        type: texto
+        resumo: &comandos_do_bot_resumo |
+          🤖 **Comandos do bot**
+
+          Guia rápido pra Liderança e Moderação. Todos são comandos de barra (`/`), digite no chat.
+
+          **⚙️ Gerenciamento do servidor** — só **Liderança**
+
+          `/sync` — Cria no Discord o que ainda falta do config.yaml. Nunca mexe no que já existe.
+
+          `/promover membro: @Fulano cargo: Moderação` — Troca o cargo da pessoa.
+          > Exemplo de resposta: *"@Fulano agora tem apenas o cargo **Moderação**. ✅"*
+
+          `/apelido membro: @Fulano nick: Ceifador` — Muda o apelido de qualquer um, mesmo de outra Liderança (pela interface normal do Discord isso trava entre dois do mesmo cargo).
+          > Exemplo: *"Apelido de @Fulano atualizado para **Ceifador**. ✅"*
+
+          `/permissao acao: Adicionar comando: comunicado alvo: @Fulano` — Dá (ou tira) acesso extra a um comando específico, pra uma pessoa ou cargo, sem precisar trocar o cargo dela.
+          > Exemplo: *"@Fulano agora ganhou acesso extra a `/comunicado`. ✅"*
+
+          **📝 Conteúdo dos canais** — **Moderação e Liderança podem usar**
+
+          `/resumo` (rode dentro do canal que quer editar) — Abre um formulário com o texto fixado atual, pra editar com quebra de linha e trocar a imagem.
+          > Exemplo de resultado fixado no topo de um canal:
+          > *"Compartilhe músicas, playlists e recomendações."*
+
+          `/regras` — Mesma ideia, só que edita o texto de #regras (mantém o botão "Li e concordo").
+
+          **📢 Avisos da comunidade** — **Moderação e Liderança podem usar**
+
+          `/xprate exp_nidhogg: 100` — Atualiza as taxas do servidor.
+          > Exemplo do que fica fixado em #status-xp-drop-penalidade:
+          > 📊 **Taxas atuais do servidor**
+          > Taxa de E X P: 200.0% ( Normal 100.0% + Bônus 0.0% + Nidhogg 100.0% )
+          > Taxa de DROP: 100.0% ( Normal 100.0% + Bônus 0.0% + Nidhogg 0.0% )
+          > Taxa de Penalidade de Morte: 100.0% ( Normal 100.0% + Bônus 0.0% + Nidhogg 0.0% )
+
+          `/instancia nome: OGH data: 31/07 hora: 20:00 vagas: 12` — Anuncia uma instância em #anuncio-de-instancias.
+          > Exemplo: posta um aviso com botões **✅ Vou / ❌ Não vou / 🤔 Talvez** (cada um abre um formulário pra observação opcional). Fecha sozinho 30min depois do horário marcado.
+
+          `/cronograma sabado: War Room 19h domingo: OGH 20h` — Atualiza a agenda semanal fixada.
+          > Exemplo do que fica fixado:
+          > 🗓️ **Cronograma da semana**
+          > Segunda: —
+          > Terça: —
+          > Sábado: War Room 19h
+          > Domingo: OGH 20h
+
+          `/comunicado` — Abre formulário (título + texto) e publica em #comunicados-da-guilda.
+          > Exemplo:
+          > 📣 **Manutenção programada**
+          > Servidor cai às 4h pra manutenção, volta em ~1h.
+
+          *Dúvidas sobre algum comando, chama a Liderança.*
 
   - name: "👑 COMUNICAÇÃO LIDERANÇA"
     order: 8
@@ -433,6 +487,9 @@ categories:
         resumo: "Canal interno da Liderança."
       - name: "sala-lideranca"
         type: audio
+      - name: "comandos-do-bot"
+        type: texto
+        resumo: *comandos_do_bot_resumo
 
   - name: "🔊 SALAS GERAIS"
     order: 9

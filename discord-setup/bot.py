@@ -283,8 +283,11 @@ class SetupBot(discord.Client):
         resumo = chan_cfg.get("resumo")
         is_voice = chan_type == "audio"
         slug = name if is_voice else name.lower().replace(" ", "-")
+        # Busca só dentro da própria categoria -- não no servidor inteiro --
+        # pra permitir canais com o mesmo nome em categorias diferentes
+        # (ex: mesmo canal de docs repetido em Liderança e Moderação) sem
+        # que um "adote" o outro por engano.
         existing = discord.utils.get(category.channels, name=slug)
-        existing = existing or discord.utils.get(guild.channels, name=slug)
 
         if existing is not None:
             if not isinstance(existing, CHANNEL_TYPE_CLASS[chan_type]):
