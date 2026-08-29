@@ -692,10 +692,10 @@ async def xprate_command(
     avisar: bool = True,
     mencionar: app_commands.Choice[str] = None,
 ):
-    channel = discord.utils.get(interaction.guild.text_channels, name="status-xp-drop-penalidade")
+    channel = discord.utils.get(interaction.guild.text_channels, name="xp-drop-status")
     if channel is None:
         await interaction.response.send_message(
-            "Canal 'status-xp-drop-penalidade' não encontrado -- crie esse canal manualmente no Discord com esse nome exato.", ephemeral=True
+            "Canal 'xp-drop-status' não encontrado -- crie esse canal manualmente no Discord com esse nome exato.", ephemeral=True
         )
         return
 
