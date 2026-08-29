@@ -45,7 +45,7 @@ REGRAS_MARKER = "discord-setup:regras"
 # toda alteração via /permissao reescreve a mensagem na hora.
 # -----------------------------------------------------------------------------
 COMANDOS_GERENCIAVEIS = [
-    "promover", "apelido", "resumo", "regras",
+    "promover", "resumo", "regras",
     "xprate", "instancia", "cronograma", "comunicado", "permissao",
 ]
 PERMISSOES_CANAL = "comunicacao-lideranca"
@@ -482,32 +482,6 @@ async def promover_command(interaction: discord.Interaction, membro: discord.Mem
 
     await interaction.response.send_message(
         f"{membro.mention} agora tem apenas o cargo **{alvo_nome}**. ✅", ephemeral=True
-    )
-
-
-@tree.command(name="apelido", description="Muda o apelido de um membro -- funciona mesmo entre duas pessoas de Liderança.")
-@app_commands.describe(
-    membro="Quem vai ter o apelido alterado",
-    nick="Novo apelido (deixe em branco pra remover o apelido customizado e voltar ao nome original)",
-)
-@permissao_ou_excecao("apelido", administrator=True)
-async def apelido_command(interaction: discord.Interaction, membro: discord.Member, nick: str = None):
-    # Mesma trava de hierarquia do /promover: editar apelido de outra pessoa
-    # exige que o cargo mais alto de quem edita seja MAIOR que o da pessoa
-    # editada -- não funciona entre dois Liderança, nem pro Dono não ser
-    # necessário. O bot contorna isso porque o cargo dele está acima de todos.
-    try:
-        await membro.edit(nick=nick, reason=f"Apelido alterado por {interaction.user} via /apelido")
-    except discord.Forbidden:
-        await interaction.response.send_message(
-            "Sem permissão pra mudar o apelido dessa pessoa -- confirme que o cargo do bot "
-            "está acima de todos em Configurações do Servidor > Cargos.", ephemeral=True
-        )
-        return
-
-    novo = nick or membro.name
-    await interaction.response.send_message(
-        f"Apelido de {membro.mention} atualizado para **{novo}**. ✅", ephemeral=True
     )
 
 

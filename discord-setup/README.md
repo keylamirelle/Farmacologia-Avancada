@@ -321,25 +321,6 @@ cargo dele está posicionado acima de todos:
   remove qualquer um dos outros três que a pessoa já tinha e dá só o novo.
   Não acumula.
 
-### Mudando apelido de quem também é Liderança
-
-A mesma trava de hierarquia vale pra editar apelido de outra pessoa: só
-funciona se o seu cargo mais alto for **maior** que o dela -- então
-Liderança não consegue mudar o apelido de outra Liderança pela
-interface normal, nem o Dono ajuda aqui, é regra fixa do Discord. Mover
-o cargo do bot **não** resolve isso: essa restrição é entre as duas
-pessoas humanas, o bot nem entra na conta quando é você editando
-diretamente pela tela do Discord.
-
-Use `/apelido` -- o bot muda por você, do mesmo jeito que o `/promover`:
-
-```
-/apelido membro: @Fulano nick: Novo Apelido
-```
-
-Deixar `nick` em branco remove o apelido customizado (volta ao nome
-original da conta).
-
 ## Como funciona o fluxo de entrada
 
 1. Pessoa entra no servidor → só enxerga a categoria **ENTRADA**
