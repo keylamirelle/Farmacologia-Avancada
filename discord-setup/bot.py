@@ -2,12 +2,12 @@
 Bot de configuração e onboarding do servidor de Discord da comunidade.
 
 O que ele faz:
-  1. Ao iniciar (ou via comando /sync), aplica config.yaml no servidor:
-     cria/atualiza cargos, categorias e canais (texto e áudio), na ordem e
-     com as visibilidades descritas no config. Nunca deleta nada que não
-     esteja no config -- é seguro reexecutar a qualquer momento.
-  2. Publica/atualiza a mensagem de regras no canal #regras, com um botão
-     "Li e concordo" que libera o cargo Participantes.
+  1. Comandos utilitários pra Moderação/Liderança administrarem o servidor
+     e os canais (ver README) -- todos esperam que os cargos e canais que
+     usam já existam no Discord (o bot não cria nem edita estrutura).
+  2. Publica a mensagem de regras no canal #regras (só na primeira vez, se
+     ela ainda não existir), com um botão "Li e concordo" que libera o
+     cargo Participantes.
   3. Quando alguém entra no servidor, manda uma DM perguntando nick e
      classe, ajusta o apelido, e direciona a pessoa para o canal de regras.
 
@@ -45,7 +45,7 @@ REGRAS_MARKER = "discord-setup:regras"
 # toda alteração via /permissao reescreve a mensagem na hora.
 # -----------------------------------------------------------------------------
 COMANDOS_GERENCIAVEIS = [
-    "sync", "promover", "apelido", "resumo", "regras",
+    "promover", "apelido", "resumo", "regras",
     "xprate", "instancia", "cronograma", "comunicado", "permissao",
 ]
 PERMISSOES_CANAL = "comunicacao-lideranca"
@@ -135,31 +135,13 @@ def permissao_ou_excecao(nome_comando: str, **permissoes_base):
     return app_commands.check(predicate)
 
 # Ordem hierárquica -- cada membro tem UM só desses cargos por vez (não é
-# mais cumulativo). Visibilidade de canal por tier X libera esse cargo e
-# todos os que vêm depois dele nesta lista.
+# mais cumulativo). Usado pelo /promover.
 CARGOS_HIERARQUICOS = ["Participantes", "Membros", "Moderação", "Liderança"]
-
-VISIBILITY_TIER = {
-    "participantes": 0,
-    "membros": 1,
-    "moderacao": 2,
-    "lideranca": 3,
-}
-
-CHANNEL_TYPE_CLASS = {
-    "texto": discord.TextChannel,
-    "audio": discord.VoiceChannel,
-    "forum": discord.ForumChannel,
-}
 
 
 def load_config() -> dict:
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
-
-
-def hex_to_color(hex_str: str) -> discord.Color:
-    return discord.Color(int(hex_str.lstrip("#"), 16))
 
 
 intents = discord.Intents.default()
@@ -182,202 +164,6 @@ class SetupBot(discord.Client):
         await self.tree.sync(guild=guild_obj)
 
     # ------------------------------------------------------------------
-    # Sincronização de cargos / categorias / canais a partir do config.yaml
-    # ------------------------------------------------------------------
-    async def get_or_create_role(self, guild: discord.Guild, role_cfg: dict) -> discord.Role:
-        # Só CRIA cargo que não existe. Cargo já existente nunca é editado
-        # pelo sync -- mesmo que tenha sido criado manualmente ou ajustado
-        # à mão depois -- pra não desfazer customização feita direto no
-        # Discord a cada redeploy.
-        role = discord.utils.get(guild.roles, name=role_cfg["name"])
-        if role is not None:
-            log.info("Cargo já existia (id=%s), mantido sem alterações: %s", role.id, role.name)
-            return role
-
-        perms = discord.Permissions(**{p: True for p in role_cfg.get("permissions", [])})
-        color = hex_to_color(role_cfg["color"])
-        try:
-            role = await guild.create_role(
-                name=role_cfg["name"],
-                color=color,
-                hoist=role_cfg.get("hoist", False),
-                mentionable=role_cfg.get("mentionable", False),
-                permissions=perms,
-                reason="discord-setup: sync config.yaml",
-            )
-            log.info("Cargo CRIADO (novo): %s", role.name)
-        except discord.Forbidden:
-            log.warning(
-                "Sem permissão pra criar o cargo '%s' -- confirme que o cargo do bot está "
-                "acima de todos em Configurações do Servidor > Cargos.",
-                role_cfg["name"],
-            )
-            # Não dá pra seguir sem essa role -- os overwrites de canal dependem dela.
-            raise
-        return role
-
-    def overwrites_for(self, guild: discord.Guild, roles_by_name: dict, visibility: str,
-                        deny_send_everyone: bool = False) -> dict:
-        everyone = guild.default_role
-        if visibility == "publico":
-            ow = {}
-            if deny_send_everyone:
-                ow[everyone] = discord.PermissionOverwrite(send_messages=False)
-            return ow
-        # Cargo é único por pessoa (não cumulativo), então cada canal precisa
-        # liberar explicitamente o cargo alvo E todos os que vêm depois dele
-        # na hierarquia -- senão quem só tem "Liderança", por exemplo, não
-        # veria canais marcados como "membros" ou "participantes".
-        ow = {everyone: discord.PermissionOverwrite(view_channel=False)}
-        tier = VISIBILITY_TIER[visibility]
-        liberados = set(CARGOS_HIERARQUICOS[tier:])
-        for nome in CARGOS_HIERARQUICOS:
-            role = roles_by_name.get(nome)
-            if role is None:
-                continue
-            ow[role] = discord.PermissionOverwrite(view_channel=(nome in liberados))
-        return ow
-
-    async def get_or_create_category(self, guild: discord.Guild, name: str, position: int,
-                                      overwrites: dict) -> discord.CategoryChannel:
-        # Só CRIA categoria que não existe. Categoria já existente nunca é
-        # editada pelo sync (permissão, posição etc ficam como estão),
-        # mesmo que tenha sido criada ou ajustada manualmente.
-        category = discord.utils.get(guild.categories, name=name)
-        if category is not None:
-            log.info("Categoria já existia (id=%s), mantida sem alterações: %s", category.id, name)
-            return category
-
-        try:
-            category = await guild.create_category(name, overwrites=overwrites, position=position)
-            log.info("Categoria CRIADA (nova): %s", name)
-        except discord.Forbidden:
-            log.warning("Sem permissão pra criar a categoria '%s' -- canais dela ficarão sem categoria.", name)
-        return category
-
-    async def ensure_text_intro(self, channel: discord.TextChannel, resumo: str):
-        # Cria a mensagem de resumo SÓ na primeira vez (com o texto do
-        # config.yaml como rascunho inicial). Depois disso o sync nunca mais
-        # sobrescreve -- a edição passa a ser feita com o comando /resumo
-        # direto no Discord, por quem tiver permissão de Moderação+.
-        marker = "discord-setup:intro"
-        async for msg in channel.history(limit=20, oldest_first=True):
-            if msg.author.id == self.user.id and msg.embeds and msg.embeds[0].footer.text == marker:
-                return
-        embed = discord.Embed(description=resumo, color=discord.Color.blurple())
-        embed.set_footer(text=marker)
-        try:
-            sent = await channel.send(embed=embed)
-            await sent.pin(reason="discord-setup: resumo do canal")
-        except discord.Forbidden:
-            log.warning("Sem permissão pra postar/fixar o resumo em #%s.", channel.name)
-
-    async def get_or_create_channel(self, guild: discord.Guild, category: discord.CategoryChannel,
-                                     chan_cfg: dict, position: int, overwrites: dict):
-        # Só CRIA canal que não existe. Canal já existente nunca é editado
-        # pelo sync (categoria, permissão, posição, tópico etc ficam como
-        # estão) -- mesmo que tenha sido criado ou movido/renomeado
-        # manualmente, pra não desfazer nada a cada redeploy.
-        name = chan_cfg["name"]
-        chan_type = chan_cfg["type"]
-        resumo = chan_cfg.get("resumo")
-        is_voice = chan_type == "audio"
-        slug = name if is_voice else name.lower().replace(" ", "-")
-        # Busca na categoria E no servidor inteiro (fallback) -- é o que
-        # garante achar o canal mesmo se ele não estiver mais na categoria
-        # esperada (movido manualmente, ou qualquer discrepância de cache).
-        # Sem esse fallback, um canal que já existe pode não ser reconhecido
-        # e acabar sendo recriado do zero -- perdendo histórico. É por isso
-        # que cada nome de canal no config.yaml precisa ser único no
-        # servidor inteiro, nunca repetido entre categorias.
-        existing = discord.utils.get(category.channels, name=slug)
-        existing = existing or discord.utils.get(guild.channels, name=slug)
-
-        if existing is not None:
-            if not isinstance(existing, CHANNEL_TYPE_CLASS[chan_type]):
-                log.warning(
-                    "Canal '%s' já existe como %s, mas o config.yaml pede tipo '%s'. Deixando "
-                    "como está (não mexo em canal existente) -- se quiser mesmo trocar o tipo, "
-                    "apague esse canal manualmente no Discord e rode /sync de novo.",
-                    name, type(existing).__name__, chan_type,
-                )
-                return None
-            categoria_atual = existing.category.name if existing.category else "(sem categoria)"
-            log.info("Canal já existia (id=%s, em '%s'), mantido sem alterações: %s",
-                     existing.id, categoria_atual, name)
-            if resumo and chan_type == "texto":
-                await self.ensure_text_intro(existing, resumo)
-            return existing
-
-        try:
-            if chan_type == "audio":
-                existing = await guild.create_voice_channel(
-                    name, category=category, overwrites=overwrites, position=position
-                )
-                log.info("Canal de voz CRIADO (novo): %s", name)
-            elif chan_type == "forum":
-                existing = await guild.create_forum(
-                    name, category=category, overwrites=overwrites, position=position, topic=resumo,
-                )
-                log.info("Canal forum CRIADO (novo): %s", name)
-            else:
-                existing = await guild.create_text_channel(
-                    name, category=category, overwrites=overwrites, position=position
-                )
-                log.info("Canal de texto CRIADO (novo): %s", name)
-        except discord.Forbidden:
-            log.warning("Sem permissão pra criar o canal '%s'.", name)
-            return None
-
-        if resumo and chan_type == "texto":
-            await self.ensure_text_intro(existing, resumo)
-        return existing
-
-    async def sync_structure(self, guild: discord.Guild):
-        log.info("Sincronizando estrutura do servidor '%s'...", guild.name)
-
-        # 1) Cargos (ordem: Participantes -> ... -> Liderança)
-        roles_by_name = {}
-        for role_cfg in sorted(self.config["roles"], key=lambda r: r["position"]):
-            roles_by_name[role_cfg["name"]] = await self.get_or_create_role(guild, role_cfg)
-
-        # Não reordena cargos existentes -- o Discord já posiciona cargo
-        # recém-criado logo acima de @everyone sozinho, e mexer na posição
-        # de cargos que já existem desfaria reordenação manual a cada sync.
-
-        # 2) Categorias e canais
-        categorias_antes = len(guild.categories)
-        canais_antes = len(guild.channels)
-        total_configurado = sum(len(c["channels"]) for c in self.config["categories"])
-
-        for cat_cfg in sorted(self.config["categories"], key=lambda c: c["order"]):
-            deny_send = any(ch.get("somente_leitura") for ch in cat_cfg["channels"])
-            cat_overwrites = self.overwrites_for(guild, roles_by_name, cat_cfg["visibility"])
-            category = await self.get_or_create_category(
-                guild, cat_cfg["name"], cat_cfg["order"], cat_overwrites
-            )
-
-            for idx, chan_cfg in enumerate(cat_cfg["channels"]):
-                visibility = chan_cfg.get("visibility_override", cat_cfg["visibility"])
-                chan_overwrites = self.overwrites_for(
-                    guild, roles_by_name, visibility,
-                    deny_send_everyone=chan_cfg.get("somente_leitura", False),
-                )
-                await self.get_or_create_channel(guild, category, chan_cfg, idx, chan_overwrites)
-
-        categorias_novas = len(guild.categories) - categorias_antes
-        canais_novos = len(guild.channels) - canais_antes
-        log.info(
-            "Resumo do sync: %d categorias novas, %d canais novos, %d canais já existiam "
-            "(de %d configurados). Nada que já existia foi alterado. Se aparecer 'CRIADO (novo)' "
-            "pra um canal que você já esperava existir, é sinal de que ele foi renomeado no "
-            "Discord e o bot não reconhece mais o link com o config.yaml.",
-            categorias_novas, canais_novos, total_configurado - canais_novos, total_configurado,
-        )
-        log.info("Sincronização concluída.")
-        return roles_by_name
-
-    # ------------------------------------------------------------------
     # Mensagem de regras + botão persistente
     # ------------------------------------------------------------------
     def build_rules_embeds(self) -> list[discord.Embed]:
@@ -395,9 +181,10 @@ class SetupBot(discord.Client):
 
     async def ensure_rules_message(self, guild: discord.Guild):
         # Cria a mensagem de regras SÓ na primeira vez (semeada com o texto
-        # do config.yaml). Depois disso o sync nunca mais sobrescreve -- a
-        # edição passa a ser feita com /regras direto no Discord, igual ao
-        # /resumo dos outros canais.
+        # do config.yaml). Chamado sempre que o bot conecta, mas nunca
+        # sobrescreve uma mensagem já existente -- a edição passa a ser
+        # feita com /regras direto no Discord, igual ao /resumo dos
+        # outros canais.
         onboarding = self.config["onboarding"]
         channel = discord.utils.get(guild.text_channels, name=onboarding["regras_channel"])
         if channel is None:
@@ -499,18 +286,18 @@ class SetupBot(discord.Client):
                 len(self.guilds), ", ".join(f"{g.name} ({g.id})" for g in self.guilds),
             )
             return
-        # NÃO roda sync_structure aqui de propósito -- estrutura do Discord
-        # (cargos/categorias/canais) só muda quando alguém pede
-        # explicitamente com /sync. Reinício do bot (redeploy de código,
-        # ou o Railway reiniciando por conta própria) nunca deve mexer
-        # sozinho na estrutura existente.
+        # O bot não cria/edita estrutura do Discord (cargos, categorias,
+        # canais) em lugar nenhum -- isso é feito manualmente. A única
+        # exceção é a mensagem de regras logo abaixo: ela só é CRIADA se
+        # ainda não existir (nunca edita uma já existente), então é segura
+        # de rodar sempre que o bot inicia.
         self.add_view(RulesView(self, self.config["onboarding"]))
         self.add_view(InstanciaView())
+        await self.ensure_rules_message(guild)
         await _carregar_permissoes_extra(guild)
         if not fechar_instancias_vencidas.is_running():
             fechar_instancias_vencidas.start()
-        log.info("Pronto -- conectado em '%s'. Rode /sync quando quiser aplicar o config.yaml.",
-                 guild.name)
+        log.info("Pronto -- conectado em '%s'.", guild.name)
 
 
 class RulesView(discord.ui.View):
@@ -655,80 +442,6 @@ async def _antes_de_fechar_instancias_vencidas():
     await client.wait_until_ready()
 
 
-def _calcular_pendencias(guild: discord.Guild) -> dict:
-    """Só CONFERE o que falta -- não cria nada. Usado pra mostrar a prévia
-    antes do /sync de fato mexer no servidor."""
-    cargos_faltando = [
-        r["name"] for r in client.config["roles"]
-        if discord.utils.get(guild.roles, name=r["name"]) is None
-    ]
-    categorias_faltando = [
-        c["name"] for c in client.config["categories"]
-        if discord.utils.get(guild.categories, name=c["name"]) is None
-    ]
-    canais_faltando = []
-    for cat_cfg in client.config["categories"]:
-        for ch in cat_cfg["channels"]:
-            slug = ch["name"] if ch["type"] == "audio" else ch["name"].lower().replace(" ", "-")
-            if discord.utils.get(guild.channels, name=slug) is None:
-                canais_faltando.append(f"{ch['name']} (em {cat_cfg['name']})")
-    return {"cargos": cargos_faltando, "categorias": categorias_faltando, "canais": canais_faltando}
-
-
-class ConfirmarSyncView(discord.ui.View):
-    def __init__(self, guild: discord.Guild):
-        super().__init__(timeout=120)
-        self.guild = guild
-
-    @discord.ui.button(label="Confirmar e criar", style=discord.ButtonStyle.success)
-    async def confirmar(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content="Criando... ⏳", view=None)
-        client.config = load_config()  # recarrega o arquivo do zero, caso tenha mudado
-        await client.sync_structure(self.guild)
-        await client.ensure_rules_message(self.guild)
-        self.stop()
-        await interaction.edit_original_response(content="Sincronização concluída. ✅")
-
-    @discord.ui.button(label="Cancelar", style=discord.ButtonStyle.danger)
-    async def cancelar(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.stop()
-        await interaction.response.edit_message(content="Cancelado -- nada foi alterado.", view=None)
-
-    async def on_timeout(self):
-        self.stop()
-
-
-@tree.command(name="sync", description="Mostra o que falta criar do config.yaml e pede confirmação antes de aplicar.")
-@permissao_ou_excecao("sync", administrator=True)
-async def sync_command(interaction: discord.Interaction):
-    client.config = load_config()  # recarrega o arquivo do zero
-    pendencias = _calcular_pendencias(interaction.guild)
-    total = len(pendencias["cargos"]) + len(pendencias["categorias"]) + len(pendencias["canais"])
-
-    if total == 0:
-        await interaction.response.send_message(
-            "Já está tudo sincronizado -- nada novo pra criar. ✅", ephemeral=True
-        )
-        return
-
-    linhas = ["**Isso vai criar:**"]
-    if pendencias["cargos"]:
-        linhas.append("🎭 Cargos: " + ", ".join(pendencias["cargos"]))
-    if pendencias["categorias"]:
-        linhas.append("📁 Categorias: " + ", ".join(pendencias["categorias"]))
-    if pendencias["canais"]:
-        linhas.append("📄 Canais: " + "; ".join(pendencias["canais"]))
-    linhas.append(
-        "\n**Nada que já existe será alterado.** Se algo acima já existir no "
-        "Discord (e por isso não deveria aparecer aqui), cancele e chame a "
-        "Liderança antes de confirmar."
-    )
-
-    await interaction.response.send_message(
-        "\n".join(linhas), view=ConfirmarSyncView(interaction.guild), ephemeral=True
-    )
-
-
 @tree.command(name="promover", description="Troca o cargo hierárquico de um membro (Participantes/Membros/Moderação/Liderança).")
 @app_commands.describe(
     membro="Quem vai trocar de cargo",
@@ -746,7 +459,8 @@ async def promover_command(interaction: discord.Interaction, membro: discord.Mem
     alvo_role = discord.utils.get(interaction.guild.roles, name=alvo_nome)
     if alvo_role is None:
         await interaction.response.send_message(
-            f"Não encontrei o cargo '{alvo_nome}' -- rode /sync primeiro.", ephemeral=True
+            f"Não encontrei o cargo '{alvo_nome}' -- crie esse cargo manualmente no Discord "
+            "com esse nome exato antes de usar /promover.", ephemeral=True
         )
         return
 
@@ -915,7 +629,8 @@ async def regras_command(interaction: discord.Interaction):
     channel = discord.utils.get(interaction.guild.text_channels, name=onboarding["regras_channel"])
     if channel is None:
         await interaction.response.send_message(
-            f"Canal '{onboarding['regras_channel']}' não encontrado -- rode /sync primeiro.", ephemeral=True
+            f"Canal '{onboarding['regras_channel']}' não encontrado -- crie esse canal de "
+            "texto manualmente no Discord com esse nome exato.", ephemeral=True
         )
         return
 
@@ -927,7 +642,8 @@ async def regras_command(interaction: discord.Interaction):
 
     if target is None:
         await interaction.response.send_message(
-            "Não encontrei a mensagem de regras -- rode /sync primeiro pra criar ela.", ephemeral=True
+            "Não encontrei a mensagem de regras -- reinicie o bot (ele cria a mensagem "
+            "sozinho ao conectar, se o canal já existir).", ephemeral=True
         )
         return
 
@@ -979,7 +695,7 @@ async def xprate_command(
     channel = discord.utils.get(interaction.guild.text_channels, name="status-xp-drop-penalidade")
     if channel is None:
         await interaction.response.send_message(
-            "Canal 'status-xp-drop-penalidade' não encontrado -- rode /sync primeiro.", ephemeral=True
+            "Canal 'status-xp-drop-penalidade' não encontrado -- crie esse canal manualmente no Discord com esse nome exato.", ephemeral=True
         )
         return
 
@@ -1088,7 +804,7 @@ async def instancia_command(
     channel = discord.utils.get(interaction.guild.text_channels, name="anuncio-de-instancias")
     if channel is None:
         await interaction.response.send_message(
-            "Canal 'anuncio-de-instancias' não encontrado -- rode /sync primeiro.", ephemeral=True
+            "Canal 'anuncio-de-instancias' não encontrado -- crie esse canal manualmente no Discord com esse nome exato.", ephemeral=True
         )
         return
 
@@ -1162,7 +878,7 @@ async def cronograma_command(
     channel = discord.utils.get(interaction.guild.text_channels, name="anuncio-de-instancias")
     if channel is None:
         await interaction.response.send_message(
-            "Canal 'anuncio-de-instancias' não encontrado -- rode /sync primeiro.", ephemeral=True
+            "Canal 'anuncio-de-instancias' não encontrado -- crie esse canal manualmente no Discord com esse nome exato.", ephemeral=True
         )
         return
 
@@ -1248,7 +964,7 @@ async def comunicado_command(
     channel = discord.utils.get(interaction.guild.text_channels, name="comunicados-da-guilda")
     if channel is None:
         await interaction.response.send_message(
-            "Canal 'comunicados-da-guilda' não encontrado -- rode /sync primeiro.", ephemeral=True
+            "Canal 'comunicados-da-guilda' não encontrado -- crie esse canal manualmente no Discord com esse nome exato.", ephemeral=True
         )
         return
 

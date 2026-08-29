@@ -1,14 +1,25 @@
 # Configuração do Discord da comunidade
 
-Este diretório contém tudo que define e aplica a estrutura do servidor:
-cargos, canais (texto e voz), regras e o fluxo de boas-vindas de quem entra.
+Este diretório contém o bot que dá os comandos utilitários (edição de
+conteúdo, avisos, promoção de cargo) e o fluxo de boas-vindas/regras de
+quem entra no servidor.
 
-- `config.yaml` — a fonte da verdade. Edite este arquivo sempre que o escopo
-  mudar (novo cargo, novo canal, texto de regra diferente etc).
+**O bot não cria nem edita cargos, categorias ou canais.** Toda a estrutura
+do servidor (cargos "Participantes/Membros/Moderação/Liderança", categorias,
+canais de texto e voz) é montada **manualmente no Discord**, com os nomes
+exatos que os comandos esperam (ver seção "Cargos e canais que o bot
+espera" mais abaixo). Isso é de propósito -- já tivemos um incidente em que
+lógica automática de criação/reconciliação de estrutura recriou canais que
+já existiam, perdendo mensagens. Não vale o risco.
+
+- `config.yaml` — guarda só o que os comandos realmente usam: o ID do
+  servidor, o fluxo de boas-vindas (onboarding) e o texto-base das regras
+  (editável depois via `/regras`, sem precisar mexer aqui).
 - `bot.py` — processo que **precisa ficar rodando continuamente** (não é um
-  script de "rodar uma vez"). Ele aplica o `config.yaml` no servidor e cuida
-  do onboarding em tempo real (mensagem de boas-vindas, apelido, liberação
-  de acesso ao confirmar as regras).
+  script de "rodar uma vez"). Ele cuida dos comandos, do onboarding em
+  tempo real (mensagem de boas-vindas, apelido, liberação de acesso ao
+  confirmar as regras) e posta a mensagem de regras em `#regras` (só se
+  ela ainda não existir).
 
 ## 1. Criar o bot no Discord
 
@@ -53,8 +64,11 @@ Avançado, depois botão direito no servidor → Copiar ID).
 python bot.py
 ```
 
-Na primeira execução ele cria toda a estrutura (cargos, categorias, canais)
-e posta a mensagem de regras com o botão de confirmação em `#regras`.
+**Antes de rodar**, crie manualmente no Discord os cargos e canais que os
+comandos esperam (ver seção "Cargos e canais que o bot espera" mais
+abaixo) -- o bot não cria nada disso sozinho. Na primeira execução ele só
+posta a mensagem de regras com o botão de confirmação em `#regras` (se
+esse canal já existir e a mensagem ainda não tiver sido criada).
 
 O processo **precisa continuar rodando** para o onboarding funcionar (DM de
 boas-vindas, apelido automático, liberação de acesso). Rodar `python bot.py`
@@ -81,8 +95,8 @@ Pra rodar 24/7 de verdade, escolha uma opção:
    (os mesmos valores do seu `.env` local — **não** suba o `.env` pro
    GitHub, ele já está no `.gitignore`).
 7. Deploy. Acompanhe os logs em **Deployments → View Logs** — deve
-   aparecer `Conectado como <nome-do-bot>` e depois `Pronto. Cargos
-   ativos: ...`.
+   aparecer `Conectado como <nome-do-bot>` e depois `Pronto -- conectado
+   em '<nome-do-servidor>'.`.
 
 Esse serviço fica em **worker**, não **web** — não precisa expor porta
 HTTP nenhuma, é só o processo do bot conectado ao Discord.
@@ -116,67 +130,34 @@ WantedBy=multi-user.target
 sudo systemctl enable --now discord-comunidade
 ```
 
-## 5. Atualizar quando o escopo mudar
+## 5. Cargos e canais que o bot espera
 
-**Redeploy e reinício do bot NUNCA mexem na estrutura do Discord por conta
-própria.** Isso é de propósito: subir código novo (uma correção de bug, um
-comando novo) não tem nada a ver com querer criar cargo/canal, e reiniciar
-o processo sozinho não deveria arriscar tocar em nada que já existe. A
-única forma de aplicar o `config.yaml` no servidor é rodar `/sync` — uma
-ação deliberada, no Discord, quando você realmente quer isso.
+O bot procura cargos e canais **pelo nome exato**. Crie-os manualmente no
+Discord antes de usar os comandos correspondentes -- se o nome não bater
+exatamente, o comando avisa que não encontrou, em vez de criar algo
+sozinho.
 
-Passo a passo:
+**Cargos** (usados por `/promover`; `Participantes` também é o cargo
+liberado ao confirmar as regras):
 
-1. Edite `config.yaml` com o que quer adicionar.
-2. Redeploy normal (push no Railway) — o bot sobe, conecta, mas **não** mexe
-   em cargo/canal nenhum sozinho.
-3. Rode `/sync` no Discord. Ele mostra uma **prévia** do que pretende criar
-   (só o que ainda não existe) e pede confirmação com um botão antes de
-   criar qualquer coisa.
-4. Confira a lista: se aparecer algo que você *sabia* que já existia, **não
-   confirme** — cancele e investigue antes (pode ser sinal de um bug
-   parecido com o que já aconteceu uma vez). Se a lista bater com o que
-   você esperava, clique em **"Confirmar e criar"**.
+- `Participantes`, `Membros`, `Moderação`, `Liderança`
 
-**O sync só cria o que ainda não existe.** Cargo, categoria ou canal que
-já existe no Discord (foi o bot que criou antes, ou foi feito à mão) fica
-**100% intocado** -- cor, permissão, posição, categoria, tudo. O `/sync`
-nunca edita nada que já está lá, só adiciona o que está no `config.yaml`
-e ainda não tem correspondente no servidor. Também nunca deleta o que
-saiu do arquivo -- isso continua sendo manual.
+**Canais de texto:**
 
-Na prática isso significa: depois que um cargo/canal é criado uma vez,
-qualquer ajuste nele (nome, permissão, posição, cor...) só muda de novo
-se você mudar **direto no Discord** -- editar o `config.yaml` e rodar
-`/sync` de novo não vai reaplicar nada nele. O `config.yaml` só serve
-pra descrever o que **ainda falta criar**.
+- `regras` — onde a mensagem de regras é postada (o bot cria só a
+  *mensagem*, o canal em si precisa já existir)
+- `boas-vindas` — usado como aviso alternativo se a DM de boas-vindas falhar
+- `comunicacao-lideranca` — o `/permissao` guarda o estado interno dele aqui
+- `status-xp-drop-penalidade` — usado pelo `/xprate`
+- `anuncio-de-instancias` — usado pelo `/instancia` e `/cronograma`
+- `comunicados-da-guilda` — usado pelo `/comunicado`
 
-### Por que às vezes aparece um canal "duplicado" depois do sync
+Qualquer outro canal/categoria (Comércio, LATAM, salas de voz etc.) é só
+organização visual sua -- o bot não interage com eles, então o nome não
+importa pra ele funcionar.
 
-O bot reconhece um canal já existente **pelo nome exato** que está no
-`config.yaml`. Se alguém renomeia esse canal manualmente no Discord
-(emoji, tradução, correção de digitação...), o próximo `/sync` não
-reconhece mais aquele canal como "o mesmo" — e cria um **novo**, com o
-nome original do config, do lado do que foi renomeado (já que agora o
-sync nunca mexe em canal existente, esse é o único cenário em que algo
-"extra" pode aparecer).
-
-Pra saber exatamente o que aconteceu, olhe o log do deploy (Railway →
-Deployments → View Logs) depois de um `/sync`. Cada linha deixa claro o
-que houve com cada canal/categoria:
-
-- `CRIADO (novo)` — não achou nada com esse nome exato e criou um novo.
-  Se isso aparecer pra um canal que você *sabia* que já existia, é
-  sinal de que ele foi renomeado.
-- `já existia (id=..., em '...'), mantido sem alterações` — achou e não
-  tocou em nada.
-- No fim do sync, uma linha de **Resumo** soma tudo: quantas
-  categorias/canais novos vs. quantos já existiam.
-
-Se identificar um caso desses, o conserto é manual: apague o canal
-duplicado (o novo, vazio) e, se quiser manter o nome customizado,
-ajuste o `name:` dele no `config.yaml` pra bater com o que está no
-Discord.
+Se um novo comando no futuro precisar de outro canal, eu aviso qual nome
+exato criar antes de subir o código.
 
 ### Editando as regras (sem mexer no config)
 
@@ -199,10 +180,10 @@ funcionando igual.
 - Se o texto ficar grande demais pro Discord aceitar (limite de 6000
   caracteres somados em todos os embeds da mensagem), o bot avisa em
   vez de travar -- é só encurtar um pouco e tentar de novo.
-- Precisa existir uma mensagem de regras antes (`/sync` cria na
-  primeira vez) -- se você apagar essa mensagem do Discord, rode
-  `/sync` de novo pra recriar a partir do `config.yaml`, e depois
-  `/regras` pra ajustar.
+- Precisa existir uma mensagem de regras antes (o bot cria sozinho, a
+  partir do `config.yaml`, na primeira vez que conecta -- desde que o
+  canal `#regras` já exista). Se você apagar essa mensagem do Discord,
+  reinicie o bot pra ele recriar, e depois use `/regras` pra ajustar.
 
 **Se você já usou `/resumo` em `#regras` por engano** (ele funciona em
 qualquer canal de texto, não só nos que têm resumo configurado): isso
@@ -385,31 +366,24 @@ Cada pessoa tem **um só** dos quatro cargos por vez (Participantes,
 Membros, Moderação ou Liderança) — trocar de cargo é troca mesmo, não
 soma. `/promover` já cuida disso: tira o cargo antigo e dá o novo.
 
-A visibilidade dos canais continua "em cascata" (quem é Moderação
-enxerga tudo que Membros e Participantes veem), mas isso é resolvido
-pelo bot na hora de montar as permissões do canal — cada canal libera
-explicitamente todos os cargos daquele nível pra cima. Não depende da
-pessoa acumular cargos.
+A visibilidade dos canais (quem vê o quê) é configurada **manualmente no
+Discord**, nas permissões de cada categoria/canal -- o bot não mexe nisso.
+Pra manter a visibilidade "em cascata" (quem é Moderação enxerga tudo que
+Membros e Participantes veem), configure a permissão de cada canal
+liberando explicitamente todos os cargos daquele nível pra cima, já que
+`/promover` nunca deixa a pessoa acumular mais de um cargo.
 
 Os "benefícios" de cada cargo (a lista do que cada um pode fazer/acessar)
-só aparecem escritos no canal `#beneficios-membros`, visível apenas para
-Membros+ — Participantes não têm como ver essa lista em lugar nenhum do
-servidor, conforme pedido ("deve ser algo merecido, não almejado").
+devem ficar escritos só num canal visível pra Membros+ (ex:
+`#beneficios-membros`), configurado manualmente pra Participantes não
+conseguirem ver, conforme pedido ("deve ser algo merecido, não
+almejado").
 
-## Pontos que exigem confirmação sua
+## Texto das regras
 
-- **Canais de voz "Geral"**: sua mensagem original foi cortada em
-  `03-Geral`. Criei só até o 03 — se o padrão era até o 05 (como
-  Ragnarok/LoL), adicione `04-Geral` e `05-Geral` no `config.yaml` e rode
-  `/sync`.
-- **Canais "integrados com o LATAM"** (`patch-notes-br`,
-  `anuncios-oficiais`): o bot só cria os canais vazios. A integração real
-  (canal "seguindo" o canal oficial do servidor LATAM) é um recurso nativo
-  do Discord que só um humano com acesso aos dois servidores consegue
-  ativar: no canal de origem (no servidor LATAM), clicar em **"Seguir
-  Canal"** e apontar para o canal criado aqui. Não é possível automatizar
-  isso via bot.
-- Os textos de regras, cargos e canais estão em `config.yaml` exatamente
-  como você descreveu (com os ajustes pedidos: itens 6+10 unificados, item
-  8 movido para o final, e a ressalva sobre ausência/presença confirmada).
-  Revise antes do primeiro `python bot.py` — é só editar o YAML.
+O texto-base das 13 regras (com os ajustes já aplicados: itens 6+10
+unificados, item 8 movido para o final, e a ressalva sobre
+ausência/presença confirmada) mora em `config.yaml`, seção `rules:`. Ele
+só serve de rascunho inicial -- depois que a mensagem em `#regras` é
+criada, ajustes futuros são feitos com `/regras` direto no Discord, não
+editando esse arquivo.
