@@ -148,7 +148,7 @@ liberado ao confirmar as regras):
   *mensagem*, o canal em si precisa já existir)
 - `boas-vindas` — usado como aviso alternativo se a DM de boas-vindas falhar
 - `comunicacao-lideranca` — o `/permissao` guarda o estado interno dele aqui
-- `status-xp-drop-penalidade` — usado pelo `/xprate`
+- `xp-drop-status` — usado pelo `/xprate`
 - `anuncio-de-instancias` — usado pelo `/instancia` e `/cronograma`
 - `comunicados-da-guilda` — usado pelo `/comunicado`
 
